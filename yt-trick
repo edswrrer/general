@@ -1,16 +1,49 @@
 import subprocess
 import sys
+import os
+import platform
+
+# Linux için zenity, Windows için tkinter kullanacağız
+if platform.system() == "Linux":
+    try:
+        # zenity ile dizin seçimi
+        result = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Kayıt dizinini seçin"], 
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            print("Dizin seçimi iptal edildi veya hata oluştu.")
+            sys.exit(1)
+        output_dir = result.stdout.strip()
+    except FileNotFoundError:
+        print("Zenity yüklü değil. Lütfen yükleyin veya komut satırından dizin belirtin.")
+        sys.exit(1)
+
+elif platform.system() == "Windows":
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()  # Ana pencereyi gizle
+        output_dir = filedialog.askdirectory(title="Kayıt dizinini seçin")
+        if not output_dir:
+            print("Dizin seçimi iptal edildi.")
+            sys.exit(1)
+    except ImportError:
+        print("tkinter modülü bulunamadı.")
+        sys.exit(1)
+else:
+    print(f"{platform.system()} işletim sistemi için destek yok.")
+    sys.exit(1)
 
 youtube_url = input("YouTube Linkini Gir: ").strip()
-output_dir = "/home/kratertepesi/Masaüstü"
 
 command = [
     "yt-dlp",
-    "--no-playlist",       # Sadece tek video indir
+    "--no-playlist",
     "-f", "bestaudio",
     "-x", "--audio-format", "mp3",
-    "--audio-quality", "320K",  # 320kbps encode
-    "-o", f"{output_dir}/%(title)s.%(ext)s",
+    "--audio-quality", "320K",
+    "-o", os.path.join(output_dir, "%(title)s.%(ext)s"),
     youtube_url
 ]
 
