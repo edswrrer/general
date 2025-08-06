@@ -1,55 +1,108 @@
 import subprocess
 import sys
+
+def install_package(package_name):
+    """Eksik paket varsa yükler."""
+    try:
+        __import__(package_name)
+    except ImportError:
+        print(f"'{package_name}' yüklü değil, yüklüyor...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+
+# Gerekli paketleri kontrol et ve yükle
+install_package('yt_dlp')     # yt-dlp modülü adı pip'te böyle (alt çizgi)
+# tkinter genelde sistemle gelir, pip ile yüklenemez, uyarı verelim:
+try:
+    import tkinter
+except ImportError:
+    print("Uyarı: tkinter modülü bulunamadı. GUI arayüzü çalışmayabilir. Windows'ta genelde kurulu gelir.")
+
+# Buradan sonrası orijinal scriptin devamı
 import os
 import platform
+import yt_dlp  # pip install yt-dlp olarak yüklendiğinde kullanılabilir
 
-# Linux için zenity, Windows için tkinter kullanacağız
-if platform.system() == "Linux":
-    try:
-        # zenity ile dizin seçimi
-        result = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Kayıt dizinini seçin"], 
-                                capture_output=True, text=True)
-        if result.returncode != 0:
-            print("Dizin seçimi iptal edildi veya hata oluştu.")
-            sys.exit(1)
-        output_dir = result.stdout.strip()
-    except FileNotFoundError:
-        print("Zenity yüklü değil. Lütfen yükleyin veya komut satırından dizin belirtin.")
+# (Burada yukarıdaki GUI kodlarını aynen kullanabilirsin, 
+# yt-dlp modülünü subprocess ile değil Python API ile çağırmak için örnek)
+
+def select_directory_windows():
+    import tkinter as tk
+    from tkinter import filedialog, simpledialog, messagebox
+
+    root = tk.Tk()
+    root.withdraw()
+
+    youtube_url = simpledialog.askstring("YouTube Linki", "YouTube Linkini Girin:")
+    if not youtube_url:
+        messagebox.showerror("Hata", "YouTube linki girilmedi.")
         sys.exit(1)
 
-elif platform.system() == "Windows":
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()  # Ana pencereyi gizle
-        output_dir = filedialog.askdirectory(title="Kayıt dizinini seçin")
-        if not output_dir:
-            print("Dizin seçimi iptal edildi.")
-            sys.exit(1)
-    except ImportError:
-        print("tkinter modülü bulunamadı.")
+    output_dir = filedialog.askdirectory(title="Kayıt dizinini seçin")
+    if not output_dir:
+        messagebox.showerror("Hata", "Dizin seçimi iptal edildi.")
         sys.exit(1)
+
+    return youtube_url, output_dir
+
+def select_directory_linux():
+    result = subprocess.run(["zenity", "--entry", "--title=YouTube Linki", "--text=YouTube Linkini Girin:"],
+                            capture_output=True, text=True)
+    if result.returncode != 0 or not result.stdout.strip():
+        print("YouTube linki girilmedi veya iptal edildi.")
+        sys.exit(1)
+    youtube_url = result.stdout.strip()
+
+    result = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Kayıt dizinini seçin"],
+                            capture_output=True, text=True)
+    if result.returncode != 0 or not result.stdout.strip():
+        print("Dizin seçimi iptal edildi veya hata oluştu.")
+        sys.exit(1)
+    output_dir = result.stdout.strip()
+
+    return youtube_url, output_dir
+
+if platform.system() == "Windows":
+    youtube_url, output_dir = select_directory_windows()
+elif platform.system() == "Linux":
+    youtube_url, output_dir = select_directory_linux()
 else:
     print(f"{platform.system()} işletim sistemi için destek yok.")
     sys.exit(1)
 
-youtube_url = input("YouTube Linkini Gir: ").strip()
-
-command = [
-    "yt-dlp",
-    "--no-playlist",
-    "-f", "bestaudio",
-    "-x", "--audio-format", "mp3",
-    "--audio-quality", "320K",
-    "-o", os.path.join(output_dir, "%(title)s.%(ext)s"),
-    youtube_url
-]
+# yt-dlp komutunu Python API ile kullanmak için:
+def download_audio(url, output_path):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '320',
+        }],
+        'noplaylist': True,
+        'quiet': False,
+    }
+    import yt_dlp
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
 try:
-    subprocess.run(command, check=True)
-    print("İndirme ve dönüştürme tamamlandı.")
-except subprocess.CalledProcessError as e:
-    print("Hata oluştu:", e)
+    download_audio(youtube_url, output_dir)
+    if platform.system() == "Windows":
+        import tkinter.messagebox as messagebox
+        from tkinter import Tk
+        root = Tk()
+        root.withdraw()
+        messagebox.showinfo("Başarılı", "İndirme ve dönüştürme tamamlandı.")
+    else:
+        print("İndirme ve dönüştürme tamamlandı.")
+except Exception as e:
+    if platform.system() == "Windows":
+        import tkinter.messagebox as messagebox
+        from tkinter import Tk
+        root = Tk()
+        root.withdraw()
+        messagebox.showerror("Hata", f"Hata oluştu: {e}")
+    else:
+        print("Hata oluştu:", e)
     sys.exit(1)
