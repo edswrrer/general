@@ -1,0 +1,22 @@
+import subprocess
+import sys
+
+youtube_url = input("YouTube Linkini Gir: ").strip()
+output_dir = "/home/kratertepesi/Masaüstü"
+
+command = [
+    "yt-dlp",
+    "--no-playlist",       # Sadece tek video indir
+    "-f", "bestaudio",
+    "-x", "--audio-format", "mp3",
+    "--audio-quality", "320K",  # 320kbps encode
+    "-o", f"{output_dir}/%(title)s.%(ext)s",
+    youtube_url
+]
+
+try:
+    subprocess.run(command, check=True)
+    print("İndirme ve dönüştürme tamamlandı.")
+except subprocess.CalledProcessError as e:
+    print("Hata oluştu:", e)
+    sys.exit(1)
