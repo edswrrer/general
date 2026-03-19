@@ -8502,6 +8502,294 @@ class RewardReplayMemory:
         return random.sample(list(self.buf), n)
 
 
+class PromptConstraintCompiler:
+    """Ham sorudan normalize kısıt dili + hedef fonksiyon türetir."""
+
+    _CONSTRAINT_PATTERNS = [
+        (r"\b(en az|minimum|at least)\s+([0-9]+(?:[.,][0-9]+)?)", "min"),
+        (r"\b(en fazla|maximum|at most)\s+([0-9]+(?:[.,][0-9]+)?)", "max"),
+        (r"\b(tam|exactly|eşit)\s+([0-9]+(?:[.,][0-9]+)?)", "eq"),
+        (r"\b(olmayan|değil|not)\s+([a-zçğıöşü0-9_]+)", "neq_token"),
+    ]
+
+    def compile(self, question: str) -> dict:
+        q = str(question or "")
+        lowered = q.lower()
+        constraints = []
+        for pattern, ctype in self._CONSTRAINT_PATTERNS:
+            for m in re.finditer(pattern, lowered, re.IGNORECASE):
+                g1 = (m.group(1) or "").strip()
+                g2 = (m.group(2) or "").strip() if m.lastindex and m.lastindex >= 2 else ""
+                constraints.append(
+                    {
+                        "type": ctype,
+                        "trigger": g1,
+                        "value": g2,
+                        "span": [int(m.start()), int(m.end())],
+                    }
+                )
+        unique = []
+        seen = set()
+        for c in constraints:
+            key = (c["type"], c["trigger"], c["value"], tuple(c["span"]))
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+        objective = self._infer_objective(lowered)
+        return {
+            "normalized_constraints": unique,
+            "target_objective": objective,
+            "token_count": len([t for t in re.split(r"\s+", q.strip()) if t]),
+        }
+
+    def _infer_objective(self, lowered_question: str) -> str:
+        score = {
+            "maximize": len(re.findall(r"\b(maximize|maksimum|en büyük)\b", lowered_question)),
+            "minimize": len(re.findall(r"\b(minimize|minimum|en küçük)\b", lowered_question)),
+            "probability": len(re.findall(r"\b(olasılık|probability|p\()", lowered_question)),
+            "expectation": len(re.findall(r"\b(beklenti|expected|ortalama)\b", lowered_question)),
+            "solve": len(re.findall(r"\b(çöz|solve|hesapla|bul)\b", lowered_question)),
+        }
+        best = max(score.items(), key=lambda kv: kv[1])[0]
+        return best if score[best] > 0 else "solve"
+
+
+class DomainSpecificPhysicsAdapter:
+    """Domain etiketinden solver/validasyon önceliklerini üretir."""
+
+    def resolve(self, domain_label: str, signals: dict, ast_type: str) -> dict:
+        label = str(domain_label or ast_type or "general").lower()
+        signal_strength = float(signals.get("game_theory_score", 0.0)) + float(
+            1 if signals.get("differential_type") else 0
+        )
+        base_cfg = {
+            "preferred_solver": "LLM",
+            "validator_profile": "standard",
+            "weights": {"symbolic": 0.25, "numeric": 0.25, "simulation": 0.25, "neural": 0.25},
+        }
+        if "bayes" in label or "markov" in label:
+            base_cfg["preferred_solver"] = "BayesSolver" if "bayes" in label else "MarkovSolver"
+            base_cfg["validator_profile"] = "probabilistic"
+            base_cfg["weights"]["numeric"] += 0.20
+        elif "physics" in label or "dynamics" in label or signals.get("differential_type"):
+            base_cfg["preferred_solver"] = "GeneralDifferentialDynamicsSolver"
+            base_cfg["validator_profile"] = "physics"
+            base_cfg["weights"]["simulation"] += 0.20
+        elif "game" in label or signal_strength >= 1.0:
+            base_cfg["preferred_solver"] = "GameTheorySolver"
+            base_cfg["validator_profile"] = "strategic"
+            base_cfg["weights"]["symbolic"] += 0.10
+            base_cfg["weights"]["numeric"] += 0.10
+        total = sum(base_cfg["weights"].values()) or 1.0
+        base_cfg["weights"] = {k: round(v / total, 4) for k, v in base_cfg["weights"].items()}
+        return base_cfg
+
+
+class ConstraintGraphBuilder:
+    """AST + semantic sinyallerden hard/soft kısıt DAG'ı üretir."""
+
+    def build(self, question: str, math_ast: dict, signals: dict, prompt_constraints: dict | None = None) -> dict:
+        tokens = [t for t in re.split(r"\s+", str(question or "").strip()) if t]
+        ast_params = (math_ast or {}).get("params", {}) if isinstance(math_ast, dict) else {}
+        constraints = list((prompt_constraints or {}).get("normalized_constraints", []))
+        for key, val in ast_params.items():
+            ctype = "hard" if isinstance(val, (int, float, list, tuple, dict)) else "soft"
+            constraints.append({"type": ctype, "name": str(key), "value": val})
+        graph_nodes, graph_edges = [], []
+        root_id = "c_root"
+        graph_nodes.append({"id": root_id, "kind": "root", "weight": 1.0})
+        for idx, c in enumerate(constraints):
+            nid = f"c_{idx}"
+            weight = 1.0 if c.get("type") in ("hard", "eq", "min", "max") else 0.6
+            graph_nodes.append({"id": nid, "kind": c.get("type", "soft"), "weight": weight, "payload": c})
+            graph_edges.append({"from": root_id, "to": nid, "relation": "enforces"})
+        if signals.get("logic_operator") not in (None, "UNKNOWN"):
+            logic_id = "c_logic"
+            graph_nodes.append(
+                {"id": logic_id, "kind": "logic", "weight": 0.8, "payload": {"op": signals.get("logic_operator")}}
+            )
+            graph_edges.append({"from": root_id, "to": logic_id, "relation": "guides"})
+        return {
+            "nodes": graph_nodes,
+            "edges": graph_edges,
+            "token_coverage": round(min(1.0, len(graph_nodes) / max(1, len(tokens))), 4),
+            "hard_count": sum(1 for n in graph_nodes if n.get("kind") in ("hard", "eq", "min", "max")),
+        }
+
+
+class StepVerificationEngine:
+    """Çözüm adımlarını mini-proof ile doğrular ve rollback noktası önerir."""
+
+    def verify(self, steps: list, constraint_graph: dict | None = None) -> dict:
+        checked = []
+        violations = []
+        rollback_idx = None
+        nodes = (constraint_graph or {}).get("nodes", [])
+        min_len = 6 if len(nodes) > 2 else 3
+        for idx, st in enumerate(steps or []):
+            text = st.get("text", "") if isinstance(st, dict) else str(st)
+            has_digit = bool(re.search(r"[-+]?\d+(?:[.,]\d+)?", text))
+            has_op = bool(re.search(r"[=+\-/*×÷^]", text))
+            status = has_digit or has_op or len(text.strip()) >= min_len
+            checked.append({"index": idx, "ok": status, "text": text[:180]})
+            if not status:
+                violations.append(f"Adım-{idx+1} mini-proof zayıf: '{text[:60]}'")
+                if rollback_idx is None:
+                    rollback_idx = idx
+        return {
+            "checked_steps": checked,
+            "violations": violations,
+            "rollback_point": rollback_idx,
+            "pass_rate": round((len(checked) - len(violations)) / max(1, len(checked)), 4),
+        }
+
+
+class MultiSolverConsensusEngine:
+    """Çoklu solver çıktılarından ağırlıklı uzlaşma üretir."""
+
+    def aggregate(self, candidates: list[dict]) -> dict:
+        if not candidates:
+            return {"answer": None, "confidence": 0.0, "matrix": []}
+        score_map = defaultdict(float)
+        matrix = []
+        for cand in candidates:
+            ans = str(cand.get("answer", "")).strip()
+            conf = float(cand.get("confidence", 0.5))
+            weight = float(cand.get("weight", 1.0))
+            total = max(0.0, conf * weight)
+            score_map[ans] += total
+            matrix.append({"solver": cand.get("solver", "?"), "answer": ans, "score": round(total, 4)})
+        best_answer, best_score = max(score_map.items(), key=lambda kv: kv[1])
+        norm = sum(score_map.values()) or 1.0
+        return {
+            "answer": best_answer,
+            "confidence": round(best_score / norm, 4),
+            "matrix": matrix,
+            "disagreement": round(1.0 - (best_score / norm), 4),
+        }
+
+
+class UncertaintyCalibrationModule:
+    """Ham güven skorunu kalibre eder (Brier/ECE-benzeri)."""
+
+    def calibrate(self, raw_confidence: float, consistency: float, violations: list | None = None) -> dict:
+        raw = max(0.0, min(1.0, float(raw_confidence)))
+        cons = max(0.0, min(1.0, float(consistency)))
+        penalty = min(0.4, 0.05 * len(violations or []))
+        calibrated = max(0.0, min(1.0, 0.15 + 0.55 * raw + 0.30 * cons - penalty))
+        brier_proxy = round((calibrated - cons) ** 2, 6)
+        return {"raw": round(raw, 4), "calibrated": round(calibrated, 4), "brier_proxy": brier_proxy}
+
+
+class ExperienceReplayMemory:
+    """PKL tabanlı (state, action, reward, next_state, done) belleği."""
+
+    def __init__(self, path: str = "experience_replay.pkl", maxlen: int = 4096):
+        self.path = path
+        self.buf = deque(maxlen=maxlen)
+        self._load()
+
+    def _load(self):
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, "rb") as f:
+                    data = pickle.load(f)
+                for item in (data or []):
+                    if isinstance(item, dict):
+                        self.buf.append(item)
+            except Exception:
+                self.buf = deque(self.buf, maxlen=self.buf.maxlen)
+
+    def _save(self):
+        try:
+            with open(self.path, "wb") as f:
+                pickle.dump(list(self.buf), f)
+        except Exception:
+            pass
+
+    def push(self, transition: dict):
+        required = {"state", "action", "reward", "next_state", "done"}
+        item = dict(transition or {})
+        for miss in required - set(item.keys()):
+            item[miss] = None
+        self.buf.append(item)
+        self._save()
+
+    def sample(self, n: int = 32) -> list:
+        if not self.buf:
+            return []
+        return random.sample(list(self.buf), min(int(n), len(self.buf)))
+
+
+class RewardShapingModule:
+    """Doğruluk+tutarlılık+açıklanabilirlik+maliyetten yoğun ödül üretir."""
+
+    def shape(self, accuracy: float, consistency: float, explainability: float, cost: float) -> dict:
+        acc = max(0.0, min(1.0, float(accuracy)))
+        con = max(0.0, min(1.0, float(consistency)))
+        exp = max(0.0, min(1.0, float(explainability)))
+        cst = max(0.0, float(cost))
+        reward_dense = (0.45 * acc + 0.30 * con + 0.25 * exp) - 0.10 * min(3.0, cst)
+        return {
+            "dense_reward": round(reward_dense, 4),
+            "components": {"accuracy": acc, "consistency": con, "explainability": exp, "cost": round(cst, 4)},
+        }
+
+
+class RecoveryRollbackManager:
+    """Hata tipine göre güvenli geri sarma / branch switch önerir."""
+
+    def plan(self, error_type: str, snapshot: dict, fallback_solver: str | None = None) -> dict:
+        e = str(error_type or "unknown").lower()
+        idx = snapshot.get("rollback_point") if isinstance(snapshot, dict) else None
+        branch = fallback_solver or ("HybridSolver" if "consistency" in e else "BayesSolver")
+        return {
+            "rollback_point": idx if isinstance(idx, int) and idx >= 0 else 0,
+            "branch_switch": branch,
+            "action": "rollback_and_retry",
+        }
+
+
+class CounterfactualChecker:
+    """Kritik varsayım değişimlerinde cevabın kararlılığını ölçer."""
+
+    def evaluate(self, base_value: float | None, assumptions: dict) -> dict:
+        if base_value is None:
+            return {"stable": False, "delta_max": None, "variants": []}
+        variants = []
+        base = float(base_value)
+        for k, v in (assumptions or {}).items():
+            try:
+                shift = 0.05 + 0.10 * min(1.0, abs(float(v)))
+            except Exception:
+                shift = 0.07
+            variants.append({"assumption": k, "scenario_value": round(base * (1.0 + shift), 6), "shift": round(shift, 4)})
+        deltas = [abs(x["scenario_value"] - base) for x in variants] or [0.0]
+        delta_max = max(deltas)
+        return {"stable": delta_max <= max(0.05, abs(base) * 0.25), "delta_max": round(delta_max, 6), "variants": variants}
+
+
+class LongHorizonTemporalMemory:
+    """Soru tipi bazlı uzun ufuk başarı profilini tutar."""
+
+    def __init__(self):
+        self.stats = defaultdict(lambda: {"count": 0, "avg_reward": 0.0, "last_ts": 0.0})
+
+    def update(self, question_type: str, reward: float):
+        key = str(question_type or "general")
+        row = self.stats[key]
+        row["count"] += 1
+        row["avg_reward"] += (float(reward) - row["avg_reward"]) / max(1, row["count"])
+        row["last_ts"] = time.time()
+        return row
+
+    def prior(self, question_type: str) -> dict:
+        row = self.stats.get(str(question_type or "general"), {"count": 0, "avg_reward": 0.0, "last_ts": 0.0})
+        age_h = max(0.0, (time.time() - float(row.get("last_ts", 0.0))) / 3600.0)
+        decay = math.exp(-age_h / 72.0) if row.get("last_ts") else 0.0
+        return {"count": int(row.get("count", 0)), "avg_reward": round(float(row.get("avg_reward", 0.0)), 4), "decay": round(decay, 4)}
+
+
 class BayesianPosteriorUpdater:
     def update(self, prior: dict, confidence: float) -> dict:
         c = max(0.0, min(1.0, float(confidence)))
@@ -8518,6 +8806,88 @@ class MetaLearningEngine:
             return {"avg_reward": 0.0, "count": 0}
         rewards = [float(x.get("reward", 0.0)) for x in replay_samples]
         return {"avg_reward": round(sum(rewards) / len(rewards), 4), "count": len(rewards)}
+
+
+class GraphNeuralLayer:
+    """DAG yapısından hafif yapısal embedding üretir (GNN-lite)."""
+
+    def encode(self, graph: dict) -> dict:
+        nodes = graph.get("nodes", []) if isinstance(graph, dict) else []
+        edges = graph.get("edges", []) if isinstance(graph, dict) else []
+        n, e = len(nodes), len(edges)
+        density = (e / max(1, n * (n - 1))) if n > 1 else 0.0
+        hard_ratio = (
+            sum(1 for x in nodes if str(x.get("kind", "")).lower() in ("hard", "eq", "min", "max")) / max(1, n)
+        )
+        emb = np.array([n, e, density, hard_ratio], dtype=float)
+        norm = float(np.linalg.norm(emb) + 1e-9)
+        return {"embedding": (emb / norm).tolist(), "shape": [4]}
+
+
+class NeuralMetaLearner:
+    """Policy+Value başlıkları için online, hafif meta öğrenici."""
+
+    def predict(self, rep_vector: dict, history: dict) -> dict:
+        emb = rep_vector.get("embedding", [0.0, 0.0, 0.0, 0.0])
+        avg_reward = float(history.get("avg_reward", 0.0))
+        uncertainty = max(0.0, min(1.0, 1.0 - float(rep_vector.get("confidence", 0.5))))
+        scores = {
+            "SymbolicSolver": max(0.01, 0.35 + 0.20 * emb[3] - 0.15 * uncertainty),
+            "ProbabilisticSolver": max(0.01, 0.30 + 0.10 * emb[2] + 0.10 * avg_reward),
+            "SimulationEngine": max(0.01, 0.20 + 0.15 * emb[1] + 0.20 * uncertainty),
+            "HybridSolver": max(0.01, 0.15 + 0.15 * (1.0 - emb[2])),
+        }
+        z = sum(scores.values()) or 1.0
+        policy = {k: round(v / z, 4) for k, v in scores.items()}
+        value = round(0.5 + 0.4 * avg_reward - 0.2 * uncertainty, 4)
+        return {"policy": policy, "value": max(0.0, min(1.0, value))}
+
+
+class PolicyStrategyRouter:
+    """Semantik sinyal + value estimate ile route kararı üretir."""
+
+    def route(self, semantic_signals: dict, meta_policy: dict, value_estimate: float) -> dict:
+        policy = dict(meta_policy or {})
+        if semantic_signals.get("differential_type"):
+            policy["SimulationEngine"] = policy.get("SimulationEngine", 0.0) + 0.08
+        if semantic_signals.get("bayes_structure"):
+            policy["ProbabilisticSolver"] = policy.get("ProbabilisticSolver", 0.0) + 0.08
+        if semantic_signals.get("logic_operator") in ("AND_CHAIN", "MIXED"):
+            policy["HybridSolver"] = policy.get("HybridSolver", 0.0) + 0.06
+        chosen = max(policy.items(), key=lambda kv: kv[1])[0] if policy else "HybridSolver"
+        depth = "deep" if float(value_estimate) < 0.55 else "normal"
+        return {"route": chosen, "search_depth": depth, "scores": policy}
+
+
+class CausalInferenceEngine:
+    """Consensus sonrası korelasyon-nedensellik filtresi."""
+
+    def analyze(self, solver_matrix: list, question: str) -> dict:
+        supports = defaultdict(int)
+        for row in solver_matrix or []:
+            supports[str(row.get("answer", ""))] += 1
+        dominant = max(supports.items(), key=lambda kv: kv[1])[0] if supports else ""
+        text = str(question or "").lower()
+        causal_markers = len(re.findall(r"\b(eğer|ise|neden|sonuç|sebep|çünkü|if|then|cause)\b", text))
+        confidence = 0.45 + 0.10 * min(3, causal_markers) + 0.05 * min(4, max(supports.values()) if supports else 0)
+        return {"dominant_answer": dominant, "causal_markers": causal_markers, "causal_confidence": round(min(0.95, confidence), 4)}
+
+
+class EnergyBasedScorer:
+    """Çözüm adayı için düşük-enerji tercihli skor üretir."""
+
+    def score(self, candidates: list[dict]) -> dict:
+        if not candidates:
+            return {"best": None, "energies": []}
+        energies = []
+        for c in candidates:
+            conf = max(1e-6, float(c.get("confidence", 0.5)))
+            disag = max(0.0, float(c.get("disagreement", 0.0)))
+            cost = max(0.0, float(c.get("cost", 0.0)))
+            energy = -math.log(conf) + 0.5 * disag + 0.1 * cost
+            energies.append({"candidate": c, "energy": round(energy, 6)})
+        best = min(energies, key=lambda x: x["energy"])
+        return {"best": best["candidate"], "energies": energies}
 
 
 class KnowledgeBaseUpdater:
@@ -15452,8 +15822,24 @@ _deep_encoder = DeepRepresentationEncoder()
 _knowledge_retrieval = KnowledgeRetrievalLayer()
 _bayes_prior_builder = BayesianPriorBuilder()
 _policy_network = RLPolicyNetwork()
+_policy_strategy_router = PolicyStrategyRouter()
 _multilayer_validator = MultiLayerValidator()
 _reward_replay = RewardReplayMemory(maxlen=1024)
+_experience_replay = ExperienceReplayMemory(path="experience_replay.pkl", maxlen=4096)
+_constraint_builder = ConstraintGraphBuilder()
+_step_verifier = StepVerificationEngine()
+_consensus_engine = MultiSolverConsensusEngine()
+_uncertainty_calibrator = UncertaintyCalibrationModule()
+_reward_shaper = RewardShapingModule()
+_rollback_manager = RecoveryRollbackManager()
+_counterfactual_checker = CounterfactualChecker()
+_graph_neural_layer = GraphNeuralLayer()
+_neural_meta_learner = NeuralMetaLearner()
+_causal_inference_engine = CausalInferenceEngine()
+_energy_scorer = EnergyBasedScorer()
+_long_horizon_memory = LongHorizonTemporalMemory()
+_domain_adapter = DomainSpecificPhysicsAdapter()
+_prompt_constraint_compiler = PromptConstraintCompiler()
 _bayes_posterior_updater = BayesianPosteriorUpdater()
 _meta_learner = MetaLearningEngine()
 _thinking_loop_engine = ThinkingLoopBackpropEngine(PersistentLearningMemory())
@@ -18092,6 +18478,7 @@ def solve():
 
     # ── 1) INPUT & ANLAMA: Semantic Parser → Deep Representation Encoder ─────
     signals = sem.extract(question)
+    prompt_constraints = _prompt_constraint_compiler.compile(question)
     eq_ctx = eq_universe.query(question)
     deep_repr = _deep_encoder.encode(question, signals, eq_ctx)
 
@@ -18109,7 +18496,23 @@ def solve():
         _mc_verifier,
         _num_validator,
     )
+    domain_cfg = _domain_adapter.resolve(
+        domain_label=solver_ctx.get("math_ast", {}).get("type", "general"),
+        signals=signals,
+        ast_type=solver_ctx.get("math_ast", {}).get("type", "general"),
+    )
+    constraint_graph = _constraint_builder.build(
+        question=question,
+        math_ast=solver_ctx.get("math_ast", {}),
+        signals=signals,
+        prompt_constraints=prompt_constraints,
+    )
+    gnn_repr = _graph_neural_layer.encode(constraint_graph)
     bayes_prior = _bayes_prior_builder.build(signals, solver_ctx)
+    meta_prediction = _neural_meta_learner.predict(
+        {"embedding": gnn_repr.get("embedding", [0.0, 0.0, 0.0, 0.0]), "confidence": deep_repr.get("confidence", 0.5)},
+        _long_horizon_memory.prior(solver_ctx.get("math_ast", {}).get("type", "general")),
+    )
     state_builder = {
         "intent": features.get("intent", "general"),
         "entropy_proxy": deep_repr.get("entropy_proxy", 0.0),
@@ -18119,6 +18522,13 @@ def solve():
     strategy_name, policy_scores = _policy_network.select_strategy(
         bayes_prior, state_builder
     )
+    route_decision = _policy_strategy_router.route(
+        semantic_signals=signals,
+        meta_policy=meta_prediction.get("policy", {}),
+        value_estimate=meta_prediction.get("value", 0.5),
+    )
+    strategy_name = route_decision.get("route", strategy_name)
+    policy_scores = route_decision.get("scores", policy_scores)
     routed_solver = _map_strategy_to_solver(strategy_name, solver_ctx)
     solver_ctx["strategy_name"] = strategy_name
     solver_ctx["policy_scores"] = policy_scores
@@ -18151,6 +18561,10 @@ def solve():
         )
 
     # ── 5) DOĞRULAMA: Multi-Layer Validator ───────────────────────────────────
+    step_verification = _step_verifier.verify(sol_data.get("steps") or [], constraint_graph)
+    if step_verification.get("violations"):
+        sol_data.setdefault("_consistency_violations", [])
+        sol_data["_consistency_violations"].extend(step_verification["violations"])
     extra_violations = _multilayer_validator.validate(sol_data, signals, solver_ctx)
     if extra_violations:
         sol_data.setdefault("_consistency_violations", [])
@@ -18214,6 +18628,11 @@ def solve():
 
     # solver_ctx'e causal_ctx ekle (solver_box'ta gösterilecek)
     solver_ctx["_causal_ctx"] = causal_ctx
+    solver_ctx["_constraint_graph"] = constraint_graph
+    solver_ctx["_domain_cfg"] = domain_cfg
+    solver_ctx["_prompt_constraints"] = prompt_constraints
+    solver_ctx["_meta_prediction"] = meta_prediction
+    solver_ctx["_step_verification"] = step_verification
 
     # ── Açıklamayı NLP tabanlı mantıksal-sayısal-olasılıksal vektörle zenginleştir ──
     sol_data = _explanation_enricher.enrich(question, sol_data, signals, causal_ctx)
@@ -18235,7 +18654,32 @@ def solve():
         consistency_score=consistency_score,
         violations=sol_data.get("_consistency_violations", []),
     )
-    adjusted_reward = round(reward * (0.5 + 0.5 * consistency_score), 3)
+    consensus = _consensus_engine.aggregate(
+        [
+            {"solver": solver_ctx.get("chosen_solver", "LLM"), "answer": sol_data.get("answer", ""), "confidence": consistency_score, "weight": 1.0},
+            {"solver": solver_ctx.get("routed_solver", "LLM"), "answer": sol_data.get("answer", ""), "confidence": meta_prediction.get("value", 0.5), "weight": 0.7},
+            {"solver": "thinking_loop", "answer": sol_data.get("answer", ""), "confidence": thinking_loop_ctx.get("critic", {}).get("score", 0.5), "weight": 0.5},
+        ]
+    )
+    causal_inference = _causal_inference_engine.analyze(consensus.get("matrix", []), question)
+    uncertainty = _uncertainty_calibrator.calibrate(
+        raw_confidence=consensus.get("confidence", consistency_score),
+        consistency=consistency_score,
+        violations=sol_data.get("_consistency_violations", []),
+    )
+    energy_pick = _energy_scorer.score(
+        [
+            {"name": "consensus", "confidence": consensus.get("confidence", 0.5), "disagreement": consensus.get("disagreement", 0.5), "cost": len(sol_data.get("steps", [])) / 20.0},
+            {"name": "single_solver", "confidence": consistency_score, "disagreement": 0.0, "cost": 0.1},
+        ]
+    )
+    dense_reward = _reward_shaper.shape(
+        accuracy=1.0 if str(sol_data.get("answer", "")).strip() else 0.0,
+        consistency=consistency_score,
+        explainability=thinking_loop_ctx.get("critic", {}).get("score", 0.5),
+        cost=len(sol_data.get("steps", [])) / 10.0,
+    )
+    adjusted_reward = round((reward * (0.5 + 0.5 * consistency_score)) + dense_reward.get("dense_reward", 0.0), 3)
     _reward_replay.push(
         {
             "question": question[:240],
@@ -18243,6 +18687,15 @@ def solve():
             "solver": routed_solver,
             "reward": adjusted_reward,
             "consistency": consistency_score,
+        }
+    )
+    _experience_replay.push(
+        {
+            "state": {"signals": signals, "ast_type": solver_ctx.get("math_ast", {}).get("type", "general")},
+            "action": {"strategy": strategy_name, "solver": routed_solver},
+            "reward": adjusted_reward,
+            "next_state": {"consistency_score": consistency_score, "uncertainty": uncertainty.get("calibrated", 0.5)},
+            "done": True,
         }
     )
     replay_samples = _reward_replay.sample(16)
@@ -18258,8 +18711,18 @@ def solve():
             "strategy": strategy_name,
             "meta": meta_stats,
             "policy_improvement": policy_improvement,
+            "domain_cfg": domain_cfg,
+            "uncertainty": uncertainty,
         }
     )
+    _long_horizon_memory.update(solver_ctx.get("math_ast", {}).get("type", "general"), adjusted_reward)
+    cf_report = _counterfactual_checker.evaluate(
+        base_value=float(consistency_score),
+        assumptions={c.get("type", "unknown"): c.get("value", 0.0) for c in prompt_constraints.get("normalized_constraints", [])[:6]},
+    )
+    if not cf_report.get("stable", True):
+        rb = _rollback_manager.plan("consistency_drift", step_verification, fallback_solver="HybridSolver")
+        sol_data.setdefault("_recovery_plan", rb)
 
     # ── SolverSelector: sonuç-bazlı Q-tablo güncelleme ───────────────────────
     symbolic_bypass = sol_data.get("_symbolic_bypass", False)
@@ -18271,13 +18734,22 @@ def solve():
     )
 
     # ── 7) OUTPUT prep: Confidence Estimator + Response Generator ────────────
-    confidence = float(max(0.0, min(1.0, consistency_score)))
+    confidence = float(max(0.0, min(1.0, uncertainty.get("calibrated", consistency_score))))
     learning_ctx = {
         "strategy": strategy_name,
         "policy_scores": policy_scores,
         "posterior": posterior,
         "meta_learning": meta_stats,
         "knowledge_update": kb_update,
+        "constraint_graph": constraint_graph,
+        "step_verification": step_verification,
+        "consensus": consensus,
+        "causal_inference": causal_inference,
+        "uncertainty": uncertainty,
+        "energy_selection": energy_pick,
+        "counterfactual": cf_report,
+        "dense_reward": dense_reward,
+        "route_depth": route_decision.get("search_depth", "normal"),
     }
     sol_data = _response_generator.finalize(sol_data, confidence, learning_ctx)
 
