@@ -9869,8 +9869,15 @@ class OllamaClient:
         """
 
         def _first_numeric(text: str) -> str:
-            m = re.search(r"-?\d+[\d.,]*\s*(?:%|[A-Za-zμΩWNJPa/]*|e[+-]?\d+)?", text)
-            return m.group(0) if m else ""
+            s = str(text or "")
+            # Sadece açık sonuç bağlamlarını kabul et (=, ≈).
+            # Böylece "E = 1/2 m v^2" gibi ifadelerde sahte "1" sonucu enjekte edilmez.
+            m = re.search(
+                r"(?:=|≈)\s*([-+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:e[+-]?\d+)?)",
+                s,
+                flags=re.IGNORECASE,
+            )
+            return m.group(1) if m else ""
 
         def _merge_answer(ans, numeric):
             # Cevap boşsa veya sembolikse, numerik özeti ekle
@@ -18459,7 +18466,8 @@ def _planner_topic_title(sub_question: str, i: int, total: int, intent: str) -> 
     Planlayıcı modülü/düğüm adını değil, soru konusunu gösterir.
     """
     text = (sub_question or "").strip()
-    normalized = re.sub(r"[^\wçğıöşüÇĞİÖŞÜ\s%-]", " ", text, flags=re.UNICODE).lower()
+    # Ondalık sayıların noktası korunmalı (örn. 0.005 -> 005 bozulmasını önler).
+    normalized = re.sub(r"[^\wçğıöşüÇĞİÖŞÜ\s%\-.,]", " ", text, flags=re.UNICODE).lower()
     normalized = re.sub(r"\s+", " ", normalized).strip()
 
     stop_words = {
