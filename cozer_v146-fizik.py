@@ -18808,10 +18808,12 @@ def solve():
     # ── 5.5) Bağımsız Bayes+Senaryo+Paradoks+Denklem hattını solve'a entegre et ─
     integrated_reasoning = _integrated_reasoning_bridge.run(question)
     integrated_summary = integrated_reasoning.get("summary", {})
+    nonlinear_tlc = _nonlinear_tlc_engine.run(question)
     if integrated_reasoning.get("ok"):
         solver_ctx["_integrated_reasoning"] = integrated_summary
     else:
         solver_ctx["_integrated_reasoning_error"] = integrated_reasoning.get("error", "unknown")
+    solver_ctx["_nonlinear_tlc"] = nonlinear_tlc
 
     # ── 3.6. ★ CausalBayesOrchestrator — Nedensel zincir + inanılırlık analizi
     # Dört modül: PropositionalCredibilityEngine, CausalChainInferencer,
@@ -18902,6 +18904,13 @@ def solve():
             4,
         )
         sol_data["_consistency_score"] = consistency_score
+    tlc_signal = float((nonlinear_tlc.get("control") or {}).get("signal", 0.0))
+    tlc_learning = float((nonlinear_tlc.get("learning") or {}).get("learning_gain", 0.0))
+    consistency_score = round(
+        max(0.0, min(1.0, 0.8 * float(consistency_score) + 0.1 * tlc_signal + 0.1 * tlc_learning)),
+        4,
+    )
+    sol_data["_consistency_score"] = consistency_score
     _planner_memory.feedback(
         sub_questions=sub_questions,
         consistency_score=consistency_score,
@@ -19010,6 +19019,7 @@ def solve():
         "dense_reward": dense_reward,
         "route_depth": route_decision.get("search_depth", "normal"),
         "integrated_reasoning": integrated_summary,
+        "nonlinear_tlc": nonlinear_tlc,
     }
     sol_data = _response_generator.finalize(sol_data, confidence, learning_ctx)
 
@@ -24116,6 +24126,94 @@ class SpeculativeFictionOrchestrator:
 _speculative_fiction_orchestrator = SpeculativeFictionOrchestrator()
 
 
+class NonLinearThinkingLearningControlEngine:
+    """
+    bayes_paradox_ede_architecture.md katmanlarını (L0-L8) /solve hattına
+    tek bir kontrol-özet bloğu olarak yeniden uygular.
+    Amaç: non-lineer düşünme, öğrenme, kontrol ve çakışma çözümünü tek payload'da toplamak.
+    """
+
+    def __init__(self, orchestrator: SpeculativeFictionOrchestrator):
+        self.orchestrator = orchestrator
+
+    def _mode_pipeline(self, mode: str) -> str:
+        if mode == "SIMULATION_REALISTIC":
+            return "realistic_pipeline"
+        if mode == "PARADOX":
+            return "paradox_pipeline"
+        if mode == "HYBRID_SIM_PARADOX":
+            return "hybrid_pipeline"
+        return "solve_pipeline"
+
+    def _resolve_conflicts(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        checks = (raw.get("consistency_audit") or {}).get("equation_checks", [])
+        violations = (raw.get("consistency_audit") or {}).get("violations", [])
+        paradox = raw.get("paradox", {}) or {}
+        paradox_enabled = bool(paradox.get("enabled", False))
+
+        eq_conflicts = sum(1 for c in checks if c.get("evaluable") and not c.get("consistent"))
+        var_gaps = len((raw.get("consistency_audit") or {}).get("gaps", []))
+        total_conflicts = eq_conflicts + var_gaps + len(violations)
+        resolution_mode = "causal_bridge" if paradox_enabled and total_conflicts else "bayesian_smoothing"
+        resolved = max(0, total_conflicts - (1 if paradox_enabled else 0))
+
+        return {
+            "detected_conflicts": total_conflicts,
+            "resolved_conflicts": resolved,
+            "resolver": resolution_mode,
+            "status": "stable" if resolved == 0 else "degraded",
+        }
+
+    def run(self, prompt: str) -> Dict[str, Any]:
+        raw = self.orchestrator.run(prompt)
+        intent = raw.get("intent", {}) or {}
+        mode = intent.get("mode", "SOLVE")
+        simulation = raw.get("simulation", {}) or {}
+        uncertainty = simulation.get("uncertainty", {}) or {}
+        selected = raw.get("selected_model", {}) or {}
+        validation = raw.get("equation_validation", {}) or {}
+        consistency = raw.get("consistency_audit", {}) or {}
+        paradox = raw.get("paradox", {}) or {}
+        meta = paradox.get("meta", {}) or {}
+        safety = raw.get("safety", {}) or {}
+
+        conflicts = self._resolve_conflicts(raw)
+        acc = float((consistency.get("accuracy") or {}).get("overall", 0.0))
+        entropy = float(uncertainty.get("entropy", 0.0))
+        learning_gain = max(0.0, min(1.0, (0.65 * acc) + (0.35 * (1.0 / (1.0 + entropy)))))
+        control_signal = max(0.0, min(1.0, (0.5 * learning_gain) + (0.5 * (1.0 if conflicts["status"] == "stable" else 0.4))))
+
+        hierarchy = {
+            "L0_input": {"normalized": True},
+            "L1_intent": {"mode": mode, "confidence": intent.get("confidence", 0.0)},
+            "L2_semantic": {"entities": len(raw.get("entities", [])), "variables": len(raw.get("variables", []))},
+            "L3_world_equation": {"equation_count": len(raw.get("equations", [])), "selected": selected.get("equation", "")},
+            "L4_inference_simulation": {"samples": simulation.get("samples", 0), "validation_ok": validation.get("all_valid", False)},
+            "L5_specialized_modes": {"pipeline": self._mode_pipeline(mode), "paradox_enabled": paradox.get("enabled", False)},
+            "L6_risk_impact": {"consistency_accuracy": acc, "uncertainty_entropy": entropy},
+            "L7_explanation": {"mode": (raw.get("explanation", {}) or {}).get("mode", "Scientific")},
+            "L8_safety_governance": {"sanitized": safety.get("sanitized", False), "flags": safety.get("policy_flags", [])},
+        }
+
+        return {
+            "mode": mode,
+            "hierarchy": hierarchy,
+            "learning": {
+                "learning_gain": round(learning_gain, 6),
+                "posterior_focus": selected.get("posterior", 0.0),
+            },
+            "control": {
+                "signal": round(control_signal, 6),
+                "resolver": conflicts,
+            },
+            "trace": {
+                "best_equation": selected.get("equation", ""),
+                "paradox_depth": int((paradox.get("self_trap") or {}).get("depth", 0)),
+                "meta_severity": meta.get("severity", "low"),
+            },
+        }
+
+
 class IntegratedReasoningBridge:
     """
     /solve hattına Bayes+Senaryo Fiziği+Paradoks+Denklem keşfi çıktılarını
@@ -24171,6 +24269,7 @@ class IntegratedReasoningBridge:
 
 
 _integrated_reasoning_bridge = IntegratedReasoningBridge(_speculative_fiction_orchestrator)
+_nonlinear_tlc_engine = NonLinearThinkingLearningControlEngine(_speculative_fiction_orchestrator)
 
 
 @app.route('/speculative/process', methods=['POST'])
