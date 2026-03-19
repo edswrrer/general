@@ -2612,19 +2612,62 @@ EXAMPLES = [
 #  JSON SORU VERİTABANI  —  questions_db.json ile persist
 # ═══════════════════════════════════════════════════════════════════════════════
 _DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "questions_db.json")
+_DEFAULT_EXAMPLES = [dict(item) for item in EXAMPLES]
+
+
+def _example_key(item: dict):
+    """Soru öğesi için kararlı bir anahtar üret (öncelik: id, sonra metin)."""
+    if not isinstance(item, dict):
+        return None
+    item_id = item.get("id")
+    if item_id is not None:
+        return ("id", str(item_id))
+    q = item.get("q")
+    if isinstance(q, str) and q.strip():
+        return ("q", q.strip())
+    return None
 
 
 def _load_db():
-    """JSON DB'den soruları yükle; yoksa varsayılan EXAMPLES kullan."""
+    """JSON DB ve gömülü listeyi birleştir; eksik varsayılan soruları geri doldur."""
     global EXAMPLES
+    merged = [dict(item) for item in _DEFAULT_EXAMPLES]
+    changed = False
     if os.path.exists(_DB_PATH):
         try:
             with open(_DB_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, list) and data:
-                EXAMPLES = data
+            if isinstance(data, list):
+                by_key = {}
+                ordered_keys = []
+                for item in merged:
+                    key = _example_key(item)
+                    if key is None or key in by_key:
+                        continue
+                    by_key[key] = item
+                    ordered_keys.append(key)
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    key = _example_key(item)
+                    if key is None:
+                        continue
+                    if key in by_key:
+                        by_key[key] = item
+                    else:
+                        by_key[key] = item
+                        ordered_keys.append(key)
+                        changed = True
+                merged = [by_key[key] for key in ordered_keys]
+                if len(data) != len(merged):
+                    changed = True
         except Exception:
             pass
+    else:
+        changed = True
+    EXAMPLES = merged
+    if changed:
+        _save_db()
 
 
 def _save_db():
