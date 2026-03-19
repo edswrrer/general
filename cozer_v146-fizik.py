@@ -20198,6 +20198,83 @@ class BayesianWorldModel:
         return posterior
 
 
+class QuantumBayesianProcessor:
+    """
+    ═══════════════════════════════════════════════════════════════════════════
+    MOD_SPATIAL_10: Quantum-Inspired Bayesian Processor
+    ───────────────────────────────────────────────────────────────────────────
+    İşlev:
+      • Olası durumlar için genlik (amplitude) temsili üretir
+      • Süperpozisyon dağılımını normalize eder
+      • Gözleme göre collapse (ölçüm) uygular
+      • Bayesian posterior ile kuantum-esinli posterior'u birleştirir
+    ═══════════════════════════════════════════════════════════════════════════
+    """
+
+    def __init__(self):
+        self.last_amplitudes = {}
+        self.last_collapsed = {}
+
+    def process(
+        self,
+        posterior: Dict[Tuple, float],
+        observation: Optional[Tuple] = None,
+    ) -> Dict[str, Any]:
+        if not posterior:
+            return {
+                "superposition": {},
+                "collapsed_state": None,
+                "collapsed_distribution": {},
+                "hybrid_posterior": {},
+            }
+
+        total = sum(max(v, 0.0) for v in posterior.values()) + 1e-12
+        normalized = {s: max(v, 0.0) / total for s, v in posterior.items()}
+        amplitudes = {s: math.sqrt(p) for s, p in normalized.items()}
+
+        # Observation varsa o state'e bias ver, yoksa MAP state collapse olur.
+        if observation is not None and observation in amplitudes:
+            collapsed_state = observation
+        else:
+            collapsed_state = max(normalized, key=normalized.get)
+
+        # Gaussian benzeri yakınlıkla collapse dağılımı (hard-coded state yok)
+        sigma = 2.0
+        weights = {}
+        for state in normalized:
+            if (
+                isinstance(state, tuple)
+                and isinstance(collapsed_state, tuple)
+                and len(state) == len(collapsed_state)
+            ):
+                dist = np.linalg.norm(np.array(state) - np.array(collapsed_state))
+            else:
+                dist = 0.0 if state == collapsed_state else 1.0
+            weights[state] = math.exp(-(dist**2) / (2 * sigma**2))
+
+        wsum = sum(weights.values()) + 1e-12
+        collapsed_distribution = {s: w / wsum for s, w in weights.items()}
+
+        # Hybrid posterior: Bayesian + collapse blend
+        hybrid = {
+            s: 0.5 * normalized.get(s, 0.0) + 0.5 * collapsed_distribution.get(s, 0.0)
+            for s in normalized.keys()
+        }
+
+        hsum = sum(hybrid.values()) + 1e-12
+        hybrid = {s: v / hsum for s, v in hybrid.items()}
+
+        self.last_amplitudes = amplitudes
+        self.last_collapsed = hybrid
+
+        return {
+            "superposition": amplitudes,
+            "collapsed_state": collapsed_state,
+            "collapsed_distribution": collapsed_distribution,
+            "hybrid_posterior": hybrid,
+        }
+
+
 class TopologyReasoner:
     """
     ═══════════════════════════════════════════════════════════════════════════
@@ -20491,6 +20568,7 @@ _state_encoder = SpatialStateEncoder()
 _action_sim = ActionSimulationEngine()
 _q_policy = QLearningPolicyModule()
 _bayes_model = BayesianWorldModel()
+_quantum_bayes = QuantumBayesianProcessor()
 _topology = TopologyReasoner()
 _rule_evo = RuleEvolutionEngine()
 _multi_layer_mgr = MultiLayerSimulationManager()
@@ -20500,17 +20578,19 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
     ═══════════════════════════════════════════════════════════════════════════
     Ana Mekansal Akıldürüt Pipeles'ı
     
-    Şu adımları izle:
+    Şu adımları izle (12-adım pipeline):
     1. NLP Parse → Spatial sinyalleri çıkar
     2. Graph Build → 3D ağ oluştur  
     3. State Encode → Vektörel uzaya dönüştür
-    4. Action Selection → Q-Learning ile seç
-    5. Physics Simulation → Fizik simülasyonu
-    6. Bayesian Update → Belirsizliği filtrele
-    7. Topology Check → Döngü ve bağlantı analizi
-    8. Rule Evolution → CA kuralı öğren
-    9. Consensus → Multi-layer consensus
-    10. Self-Correction → PropositionalSelfCorrector devreye gir
+    4. Action Simulation Planı → hareket uzayı üret
+    5. Action Selection → Q-Learning ile seç
+    6. Physics Simulation → Fizik simülasyonu
+    7. Bayesian Update → Belirsizliği filtrele
+    8. Topology Check → Döngü ve bağlantı analizi
+    9. Rule Evolution → CA kuralı öğren
+    10. Consensus → Multi-layer consensus
+    11. Quantum-Bayesian Update → superposition/collapse
+    12. Self-Correction & Report → detaylı adım raporu üret
     
     Çıktı: {'steps': [...], 'final_state': ..., 'success': bool}
     ═══════════════════════════════════════════════════════════════════════════
@@ -20536,6 +20616,39 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
     
     state_encoding = _state_encoder.encode(initial_pos, goal_pos)
     
+    pipeline_trace = [
+        {
+            "step": 1,
+            "module": "SpatialSemanticParser",
+            "title": "NLP Mekansal Sinyal Çıkarımı",
+            "details": {
+                "dimensions": spatial_signals.get("dimensions"),
+                "spatial_type": spatial_signals.get("spatial_type"),
+                "coordinates_found": len(spatial_signals.get("coordinates", [])),
+                "directions_found": list(spatial_signals.get("directions", {}).keys()),
+                "constraints": spatial_signals.get("constraints", []),
+            },
+        },
+        {
+            "step": 2,
+            "module": "SpatialGraphBuilder",
+            "title": "3D/Topolojik Grafik İnşası",
+            "details": graph_info,
+        },
+        {
+            "step": 3,
+            "module": "SpatialStateEncoder",
+            "title": "Durum Vektörleştirme",
+            "details": {
+                "initial_position": initial_pos,
+                "goal_position": goal_pos,
+                "cartesian_dim": int(len(state_encoding.get("cartesian", []))),
+                "polar_dim": int(len(state_encoding.get("polar", []))),
+                "non_euclidean_dim": int(len(state_encoding.get("non_euclidean", []))),
+            },
+        },
+    ]
+    
     # ═══════ EXECUTION LOOP: Steps 4-9 ──────────────────────────────────────────
     steps = []
     current_state = state_encoding['full_state']
@@ -20543,17 +20656,40 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
     for step_idx in range(max_steps):
         step_record = {}
         
-        # ADIM 4: Action Selection
-        available_actions = [
-            (1, 0, 0), (-1, 0, 0),
-            (0, 1, 0), (0, -1, 0),
-            (0, 0, 1), (0, 0, -1),
-        ]
+        # ADIM 4: Action Simulation Planı (dinamik aksiyon kümesi)
+        direction_vectors = []
+        for vec_text in spatial_signals.get("directions", {}).keys():
+            cleaned = vec_text.strip("() ")
+            parts = [p.strip() for p in cleaned.split(",")]
+            if len(parts) == 3:
+                try:
+                    direction_vectors.append(tuple(int(float(p)) for p in parts))
+                except Exception:
+                    pass
+        if not direction_vectors:
+            direction_vectors = [
+                (1, 0, 0), (-1, 0, 0),
+                (0, 1, 0), (0, -1, 0),
+                (0, 0, 1), (0, 0, -1),
+            ]
+        available_actions = list(dict.fromkeys(direction_vectors))
+
+        step_record['action_simulation_plan'] = {
+            'candidate_actions': available_actions,
+            'action_count': len(available_actions),
+        }
+
+        # ADIM 5: Q-Learning Action Selection
         state_tuple = tuple(np.round(current_state[:3]).astype(int))
         best_action = _q_policy.select_action(state_tuple, available_actions)
         step_record['action'] = best_action
+        step_record['q_learning'] = {
+            'state': state_tuple,
+            'epsilon': float(_q_policy.epsilon),
+            'visit_count': int(_q_policy.visit_count[state_tuple]),
+        }
         
-        # ADIM 5: Physics Simulation
+        # ADIM 6: Physics Simulation
         physics_result = _action_sim.simulate_step(
             current_state,
             np.array(best_action),
@@ -20564,7 +20700,7 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
             'collision': physics_result['collision'],
         }
         
-        # ADIM 6: Bayesian Update
+        # ADIM 7: Bayesian Update
         new_state_tuple = tuple(np.round(physics_result['state'][:3]).astype(int))
         _bayes_model.state_space = list(_spatial_graph_builder.nodes)[:20]  # Sample
         posterior = _bayes_model.update_posterior(new_state_tuple)
@@ -20573,7 +20709,7 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
             'posteriors': {str(k): v for k, v in list(posterior.items())[:3]},  # Top-3
         }
         
-        # ADIM 7: Topology Check
+        # ADIM 8: Topology Check
         has_cycle = _topology.detect_cycles(_spatial_graph_builder.graph)
         components = _topology.connected_components(_spatial_graph_builder.graph)
         step_record['topology'] = {
@@ -20581,13 +20717,13 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
             'components': len(components),
         }
         
-        # ADIM 8: Rule Evolution
+        # ADIM 9: Rule Evolution
         if step_idx % 3 == 0:  # Her 3. adımda mutasyon
             _rule_evo.mutate_rule()
         evolved_state, ca_info = _rule_evo.step([1, 0, 1, 1, 0, 1, 0])
         step_record['rule_evolution'] = ca_info
         
-        # ADIM 9: Consensus
+        # ADIM 10: Consensus
         consensus = _multi_layer_mgr.step(
             current_state,
             np.array(best_action),
@@ -20598,6 +20734,17 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
         step_record['consensus'] = {
             'confidence': consensus['consensus_confidence'],
             'consensus_state': consensus['consensus_state'].tolist(),
+        }
+
+        # ADIM 11: Quantum-Bayesian Processor
+        qbayes = _quantum_bayes.process(posterior, observation=new_state_tuple)
+        top_hybrid = sorted(
+            qbayes.get("hybrid_posterior", {}).items(),
+            key=lambda kv: -kv[1]
+        )[:3]
+        step_record['quantum_bayesian'] = {
+            'collapsed_state': str(qbayes.get("collapsed_state")),
+            'top_hybrid_posterior': [(str(k), float(v)) for k, v in top_hybrid],
         }
         
         # ─ Reward Hesapla ─────────────────────────────────────────────────────
@@ -20627,8 +20774,76 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
         
         steps.append(step_record)
     
-    # ═══════ ADIM 10: Self-Correction (PropositionalSelfCorrector plugable) ─────
-    # (Bu, RootOrchestrator'da mevcut olan PropositionalSelfCorrector'a hook edilebilir)
+    # ═══════ ADIM 12: Self-Correction / Report Build ────────────────────────────
+    pipeline_trace.extend(
+        [
+            {
+                "step": 4,
+                "module": "ActionSimulationEngine",
+                "title": "Aksiyon Uzayı Üretimi",
+                "details": {
+                    "dynamic_source": "direction_signals_or_default",
+                    "max_steps": max_steps,
+                },
+            },
+            {
+                "step": 5,
+                "module": "QLearningPolicyModule",
+                "title": "Q-Learning Politika Güncellemesi",
+                "details": {
+                    "epsilon": float(_q_policy.epsilon),
+                    "alpha": float(_q_policy.alpha),
+                    "gamma": float(_q_policy.gamma),
+                    "visited_state_actions": len(_q_policy.visit_count),
+                },
+            },
+            {
+                "step": 6,
+                "module": "ActionSimulationEngine",
+                "title": "Fizik Adımlama ve Çarpışma",
+                "details": {"gravity_enabled": True, "friction_enabled": True},
+            },
+            {
+                "step": 7,
+                "module": "BayesianWorldModel",
+                "title": "Belirsizlikten Posterior Üretimi",
+                "details": {"tracked_state_space": len(_bayes_model.state_space)},
+            },
+            {
+                "step": 8,
+                "module": "TopologyReasoner",
+                "title": "Topolojik Çizge Analizi",
+                "details": {"analysis": ["cycle_detection", "components", "shortest_path_ready"]},
+            },
+            {
+                "step": 9,
+                "module": "RuleEvolutionEngine",
+                "title": "Hücresel Otomat Kural Evrimi",
+                "details": {"current_rule_id": int(_rule_evo.rule_id)},
+            },
+            {
+                "step": 10,
+                "module": "MultiLayerSimulationManager",
+                "title": "Çok Katmanlı Senkronizasyon",
+                "details": {"layer_weights": _multi_layer_mgr.layer_weights},
+            },
+            {
+                "step": 11,
+                "module": "QuantumBayesianProcessor",
+                "title": "Kuantum-Esinli Bayes İşleme",
+                "details": {"mode": "superposition_to_collapse_hybrid"},
+            },
+            {
+                "step": 12,
+                "module": "process_spatial_reasoning_task",
+                "title": "Çözüm Adımı Başlığı",
+                "details": {
+                    "summary": "Tüm modül adımları birleştirilerek nihai çözüm raporu üretildi.",
+                    "step_records": len(steps),
+                },
+            },
+        ]
+    )
     
     return {
         'task': task_description,
@@ -20643,6 +20858,8 @@ def process_spatial_reasoning_task(task_description: str, max_steps: int = 10) -
         'q_learning_visits': dict(_q_policy.visit_count),
         'success': distance_to_goal < 0.5,
         'total_steps': len(steps),
+        'solution_steps_title': 'Çözüm Adımı Başlığı',
+        'module_pipeline': pipeline_trace,
     }
 
 
@@ -21470,10 +21687,12 @@ def spatial_solve_endpoint():
             'success': True,
             'task': task_desc,
             'result': {
+                'solution_steps_title': result.get('solution_steps_title', 'Çözüm Adımı Başlığı'),
                 'initial_state': result['initial_state'],
                 'final_state': result['final_state'],
                 'total_steps': result['total_steps'],
                 'success': result['success'],
+                'module_pipeline': result.get('module_pipeline', []),
                 'steps_summary': [
                     {
                         'step': i,
@@ -21575,6 +21794,8 @@ def spatial_stats_endpoint():
                 'TopologyReasoner': 'Grafik analizi',
                 'RuleEvolutionEngine': 'CA kuralı evölüsyonu',
                 'MultiLayerSimulationManager': 'Multi-layer consensus',
+                'QuantumBayesianProcessor': 'Kuantum-esinli Bayes süperpozisyon/collapse',
+                'process_spatial_reasoning_task': '12-adım orkestrasyon ve raporlama',
             },
         })
     except Exception as e:
@@ -21603,4 +21824,3 @@ def spatial_test_endpoint():
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
-
