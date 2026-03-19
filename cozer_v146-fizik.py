@@ -36,7 +36,7 @@ import pickle
 import copy
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
-from decimal import Decimal, getcontext, InvalidOperation
+from decimal import Decimal, getcontext, InvalidOperation, localcontext
 import numpy as np
 import base64
 import platform
@@ -5893,8 +5893,25 @@ class NumericSymbolicUnitNormalizer:
         self.quant = Decimal("1").scaleb(-self.precision)
 
     def _round_signed(self, val: Decimal) -> Decimal:
+        try:
+            if val.is_nan() or val.is_infinite():
+                return Decimal("0")
+        except Exception:
+            return Decimal("0")
+
         sign = Decimal("-1") if val < 0 else Decimal("1")
-        mag = abs(val).quantize(self.quant)
+        mag_src = abs(val)
+        try:
+            with localcontext() as ctx:
+                # Büyük üslerde quantize taşmalarını yumuşat.
+                ctx.prec = max(64, self.precision * 4)
+                mag = mag_src.quantize(self.quant)
+        except (InvalidOperation, ValueError):
+            try:
+                mag = Decimal(format(float(mag_src), f".{self.precision}f"))
+            except Exception:
+                return Decimal("0")
+
         out = sign * mag
         # -0.00000000 gibi artefact'ları temizle
         if abs(out) < self.quant:
@@ -23158,6 +23175,10 @@ class PromptIntentSplitter:
                 score += min(0.35, 0.12 * hit)
             mode_scores[mode] = score
 
+        if re.search(r"\b(warp|war[- ]?engine|solucan[- ]?deliği|wormhole|hypergraph|non[- ]?lineer)\b", t, re.IGNORECASE):
+            mode_scores["EQUATION_DISCOVERY"] = max(mode_scores.get("EQUATION_DISCOVERY", 0.0), 0.78)
+            mode_scores["HYBRID_SIM_PARADOX"] = max(mode_scores.get("HYBRID_SIM_PARADOX", 0.0), 0.72)
+
         mode = max(mode_scores, key=mode_scores.get)
         confidence = round(float(min(0.99, mode_scores[mode] + 0.5)), 4)
 
@@ -23518,6 +23539,11 @@ class RelationDiscoveryEngine:
             rels.append({"relation": "t_effect = t_cause + delta - beta*feedback", "type": "retrocausal"})
         rels.append({"relation": "survival_prob ~ sigmoid(-injury_total)", "type": "bounded_probability"})
         rels.append({"relation": "injury_score ~ f(pressure, impulse, shielding)", "type": "composite_risk"})
+        entities = set(extracted.get("entities", []))
+        if entities.intersection({"warp", "wormhole", "solucan", "deliği", "hypergraph"}):
+            rels.append({"relation": "warp_tensor = grad(phi_metric) + kappa*hypergraph_flux", "type": "warp_engine"})
+            rels.append({"relation": "wormhole_stability = exp(-chi*throat_curvature) + eta*negative_energy_density", "type": "wormhole"})
+            rels.append({"relation": "transit_time = distance/(c*(1+alpha*warp_tensor)) - lambda*wormhole_stability", "type": "warp_wormhole_synthesis"})
         return rels
 
 
@@ -23534,6 +23560,14 @@ class EquationDiscoveryEngine:
                 "equation": normalized,
                 "channel": "physics_prior" if "pressure" in normalized else "symbolic_mutation",
                 "evidence": rel.get("type", "unknown"),
+            })
+        rel_types = {r.get("type") for r in relations}
+        if {"warp_engine", "wormhole", "warp_wormhole_synthesis"}.issubset(rel_types):
+            candidates.append({
+                "id": f"EQ{len(candidates)+1}",
+                "equation": "E_req = (m*c^2) * ((d/(c*tau) - 1)^2) / (1 + omega*wormhole_stability + zeta*hypergraph_flux)",
+                "channel": "nonlinear_synthesis",
+                "evidence": "warp_wormhole_fusion",
             })
         if not any("P(H|D)" in c.get("equation", "") for c in candidates):
             candidates.append({
