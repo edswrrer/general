@@ -18666,6 +18666,14 @@ def solve():
         sol_data.setdefault("_consistency_violations", [])
         sol_data["_consistency_violations"].extend(extra_violations)
 
+    # ── 5.5) Bağımsız Bayes+Senaryo+Paradoks+Denklem hattını solve'a entegre et ─
+    integrated_reasoning = _integrated_reasoning_bridge.run(question)
+    integrated_summary = integrated_reasoning.get("summary", {})
+    if integrated_reasoning.get("ok"):
+        solver_ctx["_integrated_reasoning"] = integrated_summary
+    else:
+        solver_ctx["_integrated_reasoning_error"] = integrated_reasoning.get("error", "unknown")
+
     # ── 3.6. ★ CausalBayesOrchestrator — Nedensel zincir + inanılırlık analizi
     # Dört modül: PropositionalCredibilityEngine, CausalChainInferencer,
     #             NarrativeBeliefPropagator, MarkovConsistencyValidator
@@ -18745,6 +18753,15 @@ def solve():
 
     # ── 6) ÖĞRENME ÇEKİRDEĞİ: reward + replay + posterior/meta update ────────
     consistency_score = sol_data.get("_consistency_score", 1.0)
+    if integrated_summary:
+        # Hard threshold yerine sürekli ağırlık: mode güveni arttıkça etkisi artar.
+        spec_weight = 0.10 + 0.20 * float(integrated_summary.get("mode_confidence", 0.0))
+        spec_acc = float(integrated_summary.get("consistency_accuracy", 0.0))
+        consistency_score = round(
+            max(0.0, min(1.0, (1.0 - spec_weight) * float(consistency_score) + spec_weight * spec_acc)),
+            4,
+        )
+        sol_data["_consistency_score"] = consistency_score
     _planner_memory.feedback(
         sub_questions=sub_questions,
         consistency_score=consistency_score,
@@ -18755,6 +18772,12 @@ def solve():
             {"solver": solver_ctx.get("chosen_solver", "LLM"), "answer": sol_data.get("answer", ""), "confidence": consistency_score, "weight": 1.0},
             {"solver": solver_ctx.get("routed_solver", "LLM"), "answer": sol_data.get("answer", ""), "confidence": meta_prediction.get("value", 0.5), "weight": 0.7},
             {"solver": "thinking_loop", "answer": sol_data.get("answer", ""), "confidence": thinking_loop_ctx.get("critic", {}).get("score", 0.5), "weight": 0.5},
+            {
+                "solver": "speculative_equation_pipeline",
+                "answer": integrated_summary.get("equation", "") or sol_data.get("answer", ""),
+                "confidence": integrated_summary.get("consistency_accuracy", 0.0),
+                "weight": 0.4 + 0.4 * float(integrated_summary.get("mode_confidence", 0.0)),
+            },
         ]
     )
     causal_inference = _causal_inference_engine.analyze(consensus.get("matrix", []), question)
@@ -18846,6 +18869,7 @@ def solve():
         "counterfactual": cf_report,
         "dense_reward": dense_reward,
         "route_depth": route_decision.get("search_depth", "normal"),
+        "integrated_reasoning": integrated_summary,
     }
     sol_data = _response_generator.finalize(sol_data, confidence, learning_ctx)
 
@@ -23932,6 +23956,63 @@ class SpeculativeFictionOrchestrator:
 
 
 _speculative_fiction_orchestrator = SpeculativeFictionOrchestrator()
+
+
+class IntegratedReasoningBridge:
+    """
+    /solve hattına Bayes+Senaryo Fiziği+Paradoks+Denklem keşfi çıktılarını
+    bağımsız endpoint'e bağlı kalmadan entegre eder.
+    Hard-coded rota yerine intent/mode çıktısına göre özet sinyal üretir.
+    """
+
+    def __init__(self, orchestrator: SpeculativeFictionOrchestrator):
+        self.orchestrator = orchestrator
+
+    def run(self, prompt: str) -> Dict[str, Any]:
+        try:
+            raw = self.orchestrator.run(prompt)
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "summary": {
+                    "mode": "SOLVE",
+                    "mode_confidence": 0.0,
+                    "equation": "",
+                    "paradox_enabled": False,
+                    "paradox_depth": 0,
+                    "uncertainty_entropy": 0.0,
+                    "consistency_accuracy": 0.0,
+                    "simulation_signal": 0.0,
+                },
+            }
+
+        selected = (raw.get("selected_model") or {})
+        sim = (raw.get("simulation") or {})
+        sim_out = (sim.get("outputs") or {})
+        paradox = (raw.get("paradox") or {})
+        self_trap = (paradox.get("self_trap") or {})
+        mode = ((raw.get("intent") or {}).get("mode") or "SOLVE")
+        mode_conf = float(((raw.get("intent") or {}).get("confidence") or 0.0))
+        consistency_accuracy = float(sim_out.get("consistency_accuracy") or 0.0)
+        uncertainty_entropy = float((sim.get("uncertainty") or {}).get("entropy") or 0.0)
+        pressure = float(sim_out.get("avg_pressure") or 0.0)
+
+        summary = {
+            "mode": mode,
+            "mode_confidence": round(max(0.0, min(1.0, mode_conf)), 4),
+            "equation": str(selected.get("equation") or ""),
+            "paradox_enabled": bool(paradox.get("enabled", False)),
+            "paradox_depth": int(self_trap.get("depth", 0) or 0),
+            "uncertainty_entropy": round(max(0.0, uncertainty_entropy), 6),
+            "consistency_accuracy": round(max(0.0, min(1.0, consistency_accuracy)), 6),
+            "simulation_signal": round(min(1.0, max(0.0, math.tanh(abs(pressure) / 10.0))), 6),
+        }
+
+        return {"ok": True, "raw": raw, "summary": summary}
+
+
+_integrated_reasoning_bridge = IntegratedReasoningBridge(_speculative_fiction_orchestrator)
 
 
 @app.route('/speculative/process', methods=['POST'])
