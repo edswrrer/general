@@ -22481,12 +22481,27 @@ class VariableEntityExtractor:
 
         constraints = re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*\s*(?:>=|<=|=|>|<)\s*[-+]?\d+(?:\.\d+)?)", t)
         units = re.findall(r"\b(m/s|kg|N|Pa|J|K|Hz|W|mol|s)\b", t, flags=re.IGNORECASE)
+        clauses = [c.strip() for c in re.split(r"[.;\n]+", t) if c.strip()]
+
+        temporal_markers = {"önce", "sonra", "after", "before", "eşzamanlı", "aynı"}
+        event_keywords = {"patlama", "çarpışma", "çarpma", "parçalanma", "düşme", "gözlem"}
+        temporal_events = []
+        for i, clause in enumerate(clauses, start=1):
+            lc = clause.lower()
+            if any(k in lc for k in temporal_markers | event_keywords):
+                temporal_events.append({
+                    "id": f"E{i}",
+                    "text": clause,
+                    "markers": sorted([k for k in temporal_markers if k in lc]),
+                    "event_terms": sorted([k for k in event_keywords if k in lc]),
+                })
 
         return {
             "entities": entities,
             "variables": variables,
             "constraints": constraints,
             "units": sorted(set(u.lower() for u in units)),
+            "temporal_events": temporal_events,
         }
 
 
@@ -22549,6 +22564,28 @@ class HypergraphBuilder:
                 tags.append("causal")
             hyperedges.append({"id": f"HE{i}", "nodes": edge_nodes, "tags": sorted(set(tags))})
 
+        # Olay-temelli hypergraph: açık zaman akışı düğüm/hiperkenarları
+        event_nodes = []
+        for ev in extracted.get("temporal_events", []):
+            ev_node = f"event::{ev['id']}"
+            event_nodes.append(ev_node)
+            nodes.add(ev_node)
+            rel_nodes = [ev_node] + ev.get("event_terms", [])[:3] + ev.get("markers", [])[:2]
+            hyperedges.append({
+                "id": f"{ev['id']}_H",
+                "nodes": sorted(set(rel_nodes)),
+                "tags": sorted(set(["event"] + (["temporal"] if ev.get("markers") else []))),
+                "source_text": ev.get("text", ""),
+            })
+
+        if len(event_nodes) >= 2:
+            for i in range(len(event_nodes) - 1):
+                hyperedges.append({
+                    "id": f"TEMP_ORDER_{i+1}",
+                    "nodes": [event_nodes[i], event_nodes[i + 1], "timeline"],
+                    "tags": ["temporal_order", "causal_candidate"],
+                })
+
         for idx, node in enumerate(task_graph.get("nodes", []), start=1):
             nodes.add(node)
             hyperedges.append({"id": f"TASK{idx}", "nodes": [node], "tags": ["task"]})
@@ -22568,25 +22605,53 @@ class RewriteRuleEngine:
             tags = set(e.get("tags", []))
 
             if {"enerji", "mesafe"}.intersection(node_set) or "physics" in tags:
-                generated_relations.append("pressure ~ E/(r^2 + eps)")
+                generated_relations.append({
+                    "equation": "pressure = gamma*E/(4*pi*(r^2+eps))",
+                    "family": "shockwave",
+                    "source_edge": e.get("id"),
+                })
                 new_edges.append({"id": f"{e['id']}_RW1", "nodes": sorted(node_set | {"pressure", "E", "r"}), "tags": ["emergent", "inverse_square"]})
 
-            if {"önce", "sonra"}.intersection(node_set) or "temporal" in tags:
-                generated_relations.append("t_event_A <= t_event_B OR retrocausal(t_B -> t_A)")
+            if {"önce", "sonra", "before", "after", "timeline"}.intersection(node_set) or "temporal" in tags:
+                generated_relations.append({
+                    "equation": "delta_t_obs = t_obs - t_real",
+                    "family": "observation_delay",
+                    "source_edge": e.get("id"),
+                })
+                generated_relations.append({
+                    "equation": "t_effect = t_cause + delta - beta*feedback",
+                    "family": "retrocausal",
+                    "source_edge": e.get("id"),
+                })
                 new_edges.append({"id": f"{e['id']}_RW2", "nodes": sorted(node_set | {"t_A", "t_B", "retrocausal"}), "tags": ["emergent", "temporal_conflict"]})
 
             if {"ışık", "hızından", "v", "c", "hızlı"}.intersection(node_set):
-                generated_relations.append("v_shock > c -> alt_metric_time")
+                generated_relations.append({
+                    "equation": "v_eff = c*(1+alpha*Psi), alpha>0",
+                    "family": "alt_physics",
+                    "source_edge": e.get("id"),
+                })
                 new_edges.append({"id": f"{e['id']}_RW3", "nodes": sorted(node_set | {"v_shock", "c", "metric_alpha"}), "tags": ["emergent", "superluminal"]})
 
             if {"hasar", "mesafe", "artıyor"}.intersection(node_set):
-                generated_relations.append("damage ~ k0 + k1*r + k2*r^2")
+                generated_relations.append({
+                    "equation": "damage = a + b*r + c*r^2",
+                    "family": "increasing_damage",
+                    "source_edge": e.get("id"),
+                })
                 new_edges.append({"id": f"{e['id']}_RW4", "nodes": sorted(node_set | {"damage", "r", "k1", "k2"}), "tags": ["emergent", "increasing_damage"]})
+
+            if "causal_candidate" in tags or "event" in tags:
+                generated_relations.append({
+                    "equation": "P(H|D) = P(D|H) * P(H) / P(D)",
+                    "family": "bayesian_core",
+                    "source_edge": e.get("id"),
+                })
 
         merged = {
             "nodes": sorted(set(graph.get("nodes", [])) | {n for e in new_edges for n in e.get("nodes", [])}),
             "hyperedges": graph.get("hyperedges", []) + new_edges,
-            "generated_relations": sorted(set(generated_relations)),
+            "generated_relations": generated_relations,
         }
         return merged
 
@@ -22616,25 +22681,31 @@ class EquationExtractionLayer:
     """Emergent hypergraph'tan denklem hipotezleri çıkarır."""
 
     def extract(self, evolved_graph: Dict[str, Any]) -> List[Dict[str, Any]]:
+        final_graph = evolved_graph.get("final_graph", {})
         tags = set()
-        for edge in evolved_graph.get("final_graph", {}).get("hyperedges", []):
+        for edge in final_graph.get("hyperedges", []):
             tags.update(edge.get("tags", []))
 
-        equations = [
-            {"id": "EQ_BASE_1", "equation": "E_kin = 0.5*m*v^2", "family": "classical_energy"},
-            {"id": "EQ_BASE_2", "equation": "pressure = gamma*E/(4*pi*(r^2+eps))", "family": "shockwave"},
-        ]
-        if "superluminal" in tags:
-            equations.append({"id": "EQ_SUPER_1", "equation": "v_eff = c*(1+alpha*Psi), alpha>0", "family": "alt_physics"})
-        if "temporal_conflict" in tags:
-            equations.append({"id": "EQ_TIME_1", "equation": "t_effect = t_cause + delta - beta*feedback", "family": "retrocausal"})
-            equations.append({"id": "EQ_TIME_2", "equation": "x_t = F(x_t, x_{t+1})", "family": "self_referential"})
-        if "increasing_damage" in tags:
-            equations.extend([
-                {"id": "EQ_DMG_1", "equation": "damage = a + b*r", "family": "increasing_linear"},
-                {"id": "EQ_DMG_2", "equation": "damage = a + b*r^2", "family": "increasing_quadratic"},
-                {"id": "EQ_DMG_3", "equation": "damage = a + b*exp(lambda*r)", "family": "increasing_exponential"},
-            ])
+        equations = []
+        relation_pool = final_graph.get("generated_relations", [])
+        for rel in relation_pool:
+            eq = rel.get("equation", "")
+            if not eq:
+                continue
+            equations.append({
+                "id": f"EQ_REL_{len(equations)+1}",
+                "equation": eq,
+                "family": rel.get("family", "emergent"),
+                "source_edge": rel.get("source_edge"),
+            })
+
+        # Algoritmik fallback (boş kalırsa) - sabit senaryo yerine tag-tabanlı
+        if not equations:
+            if "temporal_conflict" in tags:
+                equations.append({"id": "EQ_FB_1", "equation": "x_t = F(x_t, x_{t+1})", "family": "self_referential"})
+            if "inverse_square" in tags:
+                equations.append({"id": "EQ_FB_2", "equation": "y = k/(r^2+eps)", "family": "inverse_square"})
+            equations.append({"id": f"EQ_FB_{len(equations)+1}", "equation": "E_kin = 0.5*m*v^2", "family": "classical_energy"})
         return equations
 
 
@@ -22726,6 +22797,9 @@ class RelationDiscoveryEngine:
         rels = []
         if {"E", "r"}.issubset(vars_) or "r" in vars_:
             rels.append({"relation": "pressure ~ E / (r^2 + eps)", "type": "inverse_square"})
+        if extracted.get("temporal_events"):
+            rels.append({"relation": "delta_t_obs = t_obs - t_real", "type": "observation_delay"})
+            rels.append({"relation": "t_effect = t_cause + delta - beta*feedback", "type": "retrocausal"})
         rels.append({"relation": "survival_prob ~ sigmoid(-injury_total)", "type": "bounded_probability"})
         rels.append({"relation": "injury_score ~ f(pressure, impulse, shielding)", "type": "composite_risk"})
         return rels
@@ -22743,12 +22817,15 @@ class EquationDiscoveryEngine:
                 "id": f"EQ{idx}",
                 "equation": normalized,
                 "channel": "physics_prior" if "pressure" in normalized else "symbolic_mutation",
+                "evidence": rel.get("type", "unknown"),
             })
-        candidates.append({
-            "id": f"EQ{len(candidates)+1}",
-            "equation": "P(H|D) = P(D|H) * P(H) / P(D)",
-            "channel": "bayesian_core",
-        })
+        if not any("P(H|D)" in c.get("equation", "") for c in candidates):
+            candidates.append({
+                "id": f"EQ{len(candidates)+1}",
+                "equation": "P(H|D) = P(D|H) * P(H) / P(D)",
+                "channel": "bayesian_core",
+                "evidence": "default_bayes",
+            })
         return candidates
 
 
@@ -22767,12 +22844,53 @@ class MultiHypothesisGenerator:
 class BayesianModelSelection:
     def select(self, hypotheses: List[Dict[str, Any]]) -> Dict[str, Any]:
         scored = []
-        norm = sum(1.0 / h["complexity"] for h in hypotheses) + 1e-9
+        weighted = []
         for h in hypotheses:
-            posterior = (1.0 / h["complexity"]) / norm
+            eq = h.get("equation", "")
+            prior = 1.0
+            if "P(H|D)" in eq:
+                prior *= 1.1
+            if "t_effect" in eq or "delta_t_obs" in eq:
+                prior *= 1.15
+            weighted.append((h, prior / max(1, h["complexity"])))
+        norm = sum(w for _, w in weighted) + 1e-9
+        for h, w in weighted:
+            posterior = w / norm
             scored.append({**h, "posterior": round(float(posterior), 6)})
         scored.sort(key=lambda x: -x["posterior"])
         return {"selected": scored[0] if scored else {}, "ranked": scored}
+
+
+class EquationGroundedExplainer:
+    """Seçilen denklem ve nedensellik modeli üzerinden açıklama üretir."""
+
+    def build(
+        self,
+        prompt: str,
+        selected_model: Dict[str, Any],
+        model_ranking: List[Dict[str, Any]],
+        evolved: Dict[str, Any],
+        causality_models: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        eq = selected_model.get("equation", "N/A")
+        top_p = selected_model.get("posterior", 0.0)
+        hyperedge_count = len(evolved.get("final_graph", {}).get("hyperedges", []))
+        temporal_conflict = any("temporal_conflict" in e.get("tags", []) for e in evolved.get("final_graph", {}).get("hyperedges", []))
+
+        mode_note = "çelişki derinleştirildi" if temporal_conflict else "çelişki minimize edildi"
+        best_causal = causality_models[1] if temporal_conflict and len(causality_models) > 1 else causality_models[0]
+        ranking_preview = ", ".join(
+            f"{m.get('hypothesis')}:{m.get('posterior')}" for m in model_ranking[:3]
+        )
+
+        text = (
+            f"Prompttan {hyperedge_count} hiperkenarlı temsil üretildi. "
+            f"Seçilen denklem: {eq}. "
+            f"Model posterioru={top_p}. "
+            f"Nedensellik tercihi: {best_causal.get('name')} ({best_causal.get('status')}). "
+            f"Durum: {mode_note}. Üst modeller: {ranking_preview}."
+        )
+        return {"mode": "Scientific", "text": text}
 
 
 class EquationValidationLoop:
@@ -22885,6 +23003,7 @@ class SpeculativeFictionOrchestrator:
         self.eq_discovery = EquationDiscoveryEngine()
         self.multi_h = MultiHypothesisGenerator()
         self.model_select = BayesianModelSelection()
+        self.explainer = EquationGroundedExplainer()
         self.validation = EquationValidationLoop()
         self.constraint_builder = ConstraintBuilder()
         self.paradox_injector = ParadoxInjector()
@@ -22923,6 +23042,26 @@ class SpeculativeFictionOrchestrator:
         explanation_mode = self.mode_selector.select(intent_payload)
         uncertainty = self.uncertainty.report(selection.get("ranked", []))
 
+        causality_models = [
+            {
+                "name": "classical_forward",
+                "rule": "cause(t) < effect(t)",
+                "status": "inconsistent_if_temporal_conflict" if any("temporal_conflict" in e.get("tags", []) for e in evolved.get("final_graph", {}).get("hyperedges", [])) else "consistent",
+            },
+            {
+                "name": "retrocausal_fixed_point",
+                "rule": "state_t = F(state_t, state_t+1)",
+                "status": "candidate_solution",
+            },
+        ]
+        explanation = self.explainer.build(
+            prompt=prompt,
+            selected_model=selection.get("selected", {}),
+            model_ranking=selection.get("ranked", []),
+            evolved=evolved,
+            causality_models=causality_models,
+        )
+
         result = {
             "intent": {
                 "mode": intent_payload.get("mode"),
@@ -22943,6 +23082,7 @@ class SpeculativeFictionOrchestrator:
                 "emergent": evolved.get("final_graph", {}),
             },
             "relations": relations,
+            "equations": equations,
             "hypotheses": hypotheses,
             "selected_model": selection.get("selected", {}),
             "model_ranking": selection.get("ranked", []),
@@ -22962,28 +23102,14 @@ class SpeculativeFictionOrchestrator:
                 "nodes": ["impact", "rupture", "shockwave", "damage", "survival"],
                 "edges": [["impact", "rupture"], ["rupture", "shockwave"], ["shockwave", "damage"], ["damage", "survival"]],
             },
-            "causality_models": [
-                {
-                    "name": "classical_forward",
-                    "rule": "cause(t) < effect(t)",
-                    "status": "inconsistent_if_temporal_conflict" if any("temporal_conflict" in e.get("tags", []) for e in evolved.get("final_graph", {}).get("hyperedges", [])) else "consistent",
-                },
-                {
-                    "name": "retrocausal_fixed_point",
-                    "rule": "state_t = F(state_t, state_t+1)",
-                    "status": "candidate_solution",
-                },
-            ],
+            "causality_models": causality_models,
             "paradox": {
                 "enabled": intent_payload.get("mode") in {"PARADOX", "HYBRID_SIM_PARADOX"},
                 "constraints": paradox_constraints,
                 "self_trap": self_trap,
                 "meta": meta,
             },
-            "explanation": {
-                "mode": explanation_mode,
-                "text": "Hypergraph rewrite tabanlı emergent denklem + Bayes + multi-world + paradox pipeline tamamlandı.",
-            },
+            "explanation": {**explanation, "mode": explanation_mode},
         }
         return self.safety.sanitize(result)
 
