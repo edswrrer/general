@@ -9778,6 +9778,88 @@ class OllamaClient:
         self.url = url
         self.model = model
 
+    def _build_question_numeric_anchor_block(self, question: str) -> str:
+        """
+        Soru metnindeki ondalık sayıları zorunlu "anchor" olarak prompt'a ekler.
+        Amaç: LLM'in 0.005 → 5 gibi büyüklük kaymalarını engellemek.
+        """
+        q = str(question or "")
+        raw_anchors = re.findall(r"(?<!\d)(?:\d+\.\d+|\.\d+)(?!\d)", q)
+        if not raw_anchors:
+            return ""
+
+        norm = []
+        for a in raw_anchors:
+            tok = a.strip()
+            if tok.startswith("."):
+                tok = "0" + tok
+            if tok not in norm:
+                norm.append(tok)
+
+        lines = [
+            "",
+            "═══ NUMERIC ANCHOR CONSTRAINTS (ZORUNLU) ═══",
+            "Aşağıdaki ondalık sabitleri SORUDA geçtiği biçimde koru; ölçek/delik dönüşümü yapma:",
+        ]
+        for a in norm:
+            lines.append(f"  • {a}")
+        lines.append("Bu sabitler, adımların en az birinde ve final yanıtında görünmelidir.")
+        return "\n".join(lines)
+
+    def _find_missing_decimal_anchors(self, question: str, sol_data: dict) -> list[str]:
+        """
+        Soru metnindeki ondalık sayıların çözümde korunup korunmadığını kontrol eder.
+        Eksik anchor'lar retry ihlali olarak kullanılır.
+        """
+        q = str(question or "")
+        anchors = re.findall(r"(?<!\d)(?:\d+\.\d+|\.\d+)(?!\d)", q)
+        if not anchors:
+            return []
+
+        # Çözümdeki tüm sayıları topla (int + float + bilimsel gösterim)
+        parts = [
+            str(sol_data.get("answer", "") or ""),
+            str(sol_data.get("numeric", "") or ""),
+            str(sol_data.get("formula", "") or ""),
+        ]
+        for st in sol_data.get("steps") or []:
+            parts.extend(
+                [
+                    str(st.get("title", "") or ""),
+                    str(st.get("content", "") or ""),
+                    str(st.get("formula", "") or ""),
+                    str(st.get("result", "") or ""),
+                ]
+            )
+        full = " ".join(parts)
+        nums = []
+        for m in re.finditer(r"(?<!\w)[-+]?(?:\d+\.\d+|\d+|\.\d+)(?:e[-+]?\d+)?", full, re.IGNORECASE):
+            token = m.group(0)
+            if token.startswith("."):
+                token = "0" + token
+            try:
+                nums.append(Decimal(token))
+            except (InvalidOperation, ValueError):
+                pass
+
+        missing = []
+        for raw in anchors:
+            anchor = ("0" + raw) if raw.startswith(".") else raw
+            try:
+                target = Decimal(anchor)
+            except (InvalidOperation, ValueError):
+                continue
+            tol = max(Decimal("1e-12"), abs(target) * Decimal("1e-9"))
+            if not any(abs(v - target) <= tol for v in nums):
+                missing.append(anchor)
+
+        if not missing:
+            return []
+        return [
+            "[NUMERIC-ANCHOR-MISMATCH] Soru ondalık sabiti çözümde korunmadı: "
+            + ", ".join(missing)
+        ]
+
     # ── Yardımcı: tüm tiplerde adım başlıkları ve nihai cevapta değerleri koru ──
     def _bind_values(self, sol_data: dict) -> dict:
         """
@@ -9894,6 +9976,7 @@ class OllamaClient:
         7. MAX_RETRIES sonra en iyi sonucu döndür
         """
         system_prompt = build_system_prompt(signals, sem)
+        system_prompt += self._build_question_numeric_anchor_block(question)
         if solver_ctx:
             system_prompt += _build_solver_hint(solver_ctx)
 
@@ -9925,6 +10008,11 @@ class OllamaClient:
 
             # ── Consistency check ─────────────────────────────────────────────
             score, violations, is_ok = scorer.score(signals, sol_data)
+            anchor_violations = self._find_missing_decimal_anchors(question, sol_data)
+            if anchor_violations:
+                violations = list(violations) + anchor_violations
+                is_ok = False
+                score = max(0.0, float(score) - 0.25 * len(anchor_violations))
             sol_data["_consistency_score"] = round(score, 3)
             sol_data["_consistency_violations"] = violations
 
