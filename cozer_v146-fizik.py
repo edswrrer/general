@@ -38,6 +38,7 @@ from typing import Optional
 from decimal import Decimal, getcontext, InvalidOperation
 import numpy as np
 import base64
+import platform
 
 try:
     import matplotlib
@@ -107,6 +108,54 @@ ASCII_WIDTH = 82
 
 # ── Web İstihbaratı Pipeline'ı global olarak initialize et ──────────────────
 web_intelligence_pipeline = None
+
+
+def configure_linux_cpu_threads(target_threads: int = 24) -> dict:
+    """
+    Linux ortamında CPU tabanlı iş parçacığı sayılarını tek yerden ayarlar.
+    Amaç: BLAS/OpenMP/Torch tarafında CPU işlemlerini 24 thread'e hizalamak.
+    """
+    applied = {
+        "platform": platform.system().lower(),
+        "target_threads": int(target_threads),
+        "env": {},
+        "torch": {"set_num_threads": False, "set_num_interop_threads": False},
+    }
+
+    if applied["platform"] != "linux":
+        return applied
+
+    n = str(int(target_threads))
+    env_keys = [
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "OMP_THREAD_LIMIT",
+    ]
+    for k in env_keys:
+        os.environ[k] = n
+        applied["env"][k] = n
+
+    # PyTorch thread havuzları (varsa)
+    if _TORCH_OK:
+        try:
+            torch.set_num_threads(int(target_threads))
+            applied["torch"]["set_num_threads"] = True
+        except Exception:
+            pass
+        try:
+            torch.set_num_interop_threads(int(target_threads))
+            applied["torch"]["set_num_interop_threads"] = True
+        except Exception:
+            pass
+
+    return applied
+
+
+CPU_THREAD_CONFIG = configure_linux_cpu_threads(24)
 
 
 def init_web_intelligence():
