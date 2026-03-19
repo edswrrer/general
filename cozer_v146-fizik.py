@@ -5985,6 +5985,150 @@ class NumericSymbolicUnitNormalizer:
 
 _global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
 
+
+class ResultCanonicalizer:
+    """Solver çıktısını deterministik sayısal formata normalize eder."""
+
+    def __init__(self, normalizer: NumericSymbolicUnitNormalizer):
+        self.normalizer = normalizer
+
+    def canonicalize(self, sol_data: dict) -> dict:
+        data = self.normalizer.normalize_solution_payload(sol_data or {})
+        out = dict(data)
+        for key in ("answer", "numeric"):
+            raw = str(out.get(key, "") or "")
+            if "pi" in raw.lower() or "π" in raw:
+                out.setdefault("exact", "π")
+                out.setdefault("approx", "3.14159")
+        return out
+
+
+class PrecisionController:
+    """
+    Soru tipine göre sayısal hassasiyet ve çıktı şekli belirler.
+    Veri kaynağı: questions_db / EXAMPLES kategori sinyalleri.
+    """
+
+    RULES = {
+        "olasılık": {"decimals": 4, "format": "scalar"},
+        "oyun kuramı": {"decimals": 4, "format": "table"},
+        "geometri": {"decimals": 5, "format": "formula_plus_result"},
+        "markov": {"decimals": 6, "format": "matrix"},
+        "varsayılan": {"decimals": 4, "format": "scalar"},
+    }
+
+    def __init__(self, examples: list[dict]):
+        self.examples = examples or []
+
+    def _category_from_question(self, question: str, sol_type: str) -> str:
+        q = (question or "").strip().lower()
+        for ex in self.examples:
+            if str(ex.get("q", "")).strip().lower() == q:
+                return str(ex.get("cat", "")).lower()
+        st = (sol_type or "").lower()
+        if "game" in st:
+            return "oyun kuramı"
+        if "bayes" in st or "prob" in st:
+            return "olasılık"
+        if "markov" in st or "matrix" in st:
+            return "markov"
+        if "geo" in st:
+            return "geometri"
+        return "varsayılan"
+
+    def policy(self, question: str, sol_type: str) -> dict:
+        cat = self._category_from_question(question, sol_type)
+        for key, rule in self.RULES.items():
+            if key in cat:
+                return {"category": cat, **rule}
+        return {"category": cat, **self.RULES["varsayılan"]}
+
+    def apply(self, payload: dict, policy: dict) -> dict:
+        d = dict(payload or {})
+        decimals = int(policy.get("decimals", 4))
+
+        def _round_any(v):
+            try:
+                return round(float(v), decimals)
+            except Exception:
+                return v
+
+        d["sonuç"] = _round_any(d.get("sonuç"))
+        for st in d.get("adımlar", []) or []:
+            if isinstance(st, dict) and "result" in st:
+                st["result"] = _round_any(st.get("result"))
+        d["precision_policy"] = policy
+        return d
+
+
+class GraphLinearizer:
+    """Matplotlib yerine UI için renderer-agnostic grafik şeması üretir."""
+
+    def build(self, sol_type: str, solver_ctx: dict) -> dict:
+        st = (sol_type or "").lower()
+        sr = (solver_ctx or {}).get("solver_result", {}) or {}
+        if st in ("markov_chain", "matrix", "linear_algebra"):
+            return {
+                "type": "matrix",
+                "title": "Geçiş Matrisi",
+                "data": sr.get("transition_matrix")
+                or sr.get("matrix")
+                or [],
+            }
+        if st == "game_theory":
+            return {
+                "type": "table",
+                "title": "Ödeme Matrisi / Tur Tablosu",
+                "data": sr.get("payoff_matrix")
+                or sr.get("rounds")
+                or [],
+            }
+        return {"type": "none", "title": "Grafik gerekmiyor", "data": []}
+
+
+class OutputSchemaGenerator:
+    """Tüm sorular için tek tip DOE JSON şeması üretir."""
+
+    def generate(
+        self,
+        question: str,
+        canonical_sol: dict,
+        signals: dict,
+        consistency_score: float,
+        graph_spec: dict,
+    ) -> dict:
+        return {
+            "tür": str(canonical_sol.get("type", "general")),
+            "girişler": {
+                "soru": question,
+                "sinyaller": {
+                    k: (v if isinstance(v, (str, int, float, bool)) else str(v))
+                    for k, v in (signals or {}).items()
+                },
+            },
+            "adımlar": canonical_sol.get("steps", []) or [],
+            "sonuç": self._extract_numeric_result(canonical_sol),
+            "cevap_metni": str(canonical_sol.get("answer", "")),
+            "grafik": graph_spec,
+            "Güven": round(float(consistency_score or 0.0), 4),
+        }
+
+    def _extract_numeric_result(self, sol_data: dict):
+        cand = str(sol_data.get("numeric", "") or sol_data.get("answer", "") or "")
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", cand.replace(",", "."))
+        if not m:
+            return None
+        try:
+            return float(m.group(0))
+        except Exception:
+            return None
+
+
+_result_canonicalizer = ResultCanonicalizer(_global_num_unit_normalizer)
+_precision_controller = PrecisionController(EXAMPLES)
+_graph_linearizer = GraphLinearizer()
+_output_schema_generator = OutputSchemaGenerator()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ARITHMETIC PRECISION VALIDATOR — Tüm aritmetik adımlar için yüksek doğruluk
 #  Amaç: eksi/mertebe hatalarını otomatik düzeltmek, içsel tutarsızlıkları yakalamak
@@ -15095,7 +15239,7 @@ body::after {
 /* ── LAYOUT ── */
 #app {
   position:relative; z-index:1; display:grid;
-  grid-template-columns:320px minmax(0, 1fr) 420px; gap:0; height:calc(100vh - 48px);
+  grid-template-columns:320px minmax(0, 1fr); gap:0; height:calc(100vh - 48px);
 }
 
 /* ── SIDEBAR ── */
@@ -15223,29 +15367,8 @@ body::after {
 ::-webkit-scrollbar-thumb:hover { background:var(--green3); }
 
 
-#graph-panel {
-  background:#020707; border-left:1px solid var(--border);
-  display:flex; flex-direction:column; min-width:320px;
-}
-#graph-head {
-  padding:10px 14px; border-bottom:1px solid var(--border);
-  font-size:.66rem; color:var(--green3); letter-spacing:.1em; text-transform:uppercase;
-}
-#graph-wrap { flex:1; padding:10px; }
-#graph-image {
-  width:100%; height:100%; background:#000; border:1px solid #123; border-radius:4px;
-  box-shadow: inset 0 0 36px #00e67614, 0 0 20px #00e67612;
-  object-fit:contain;
-}
-#graph-fallback {
-  width:100%; height:100%;
-  display:flex; align-items:center; justify-content:center;
-  border:1px dashed #1b4f1b; border-radius:4px; color:var(--green3);
-  background:#000; font-size:.7rem; text-transform:uppercase; letter-spacing:.08em;
-}
-
 /* Mobile */
-@media (max-width:1100px) { #app { grid-template-columns:1fr; } #sidebar, #graph-panel { display:none; } }
+@media (max-width:1100px) { #app { grid-template-columns:1fr; } #sidebar { display:none; } }
 
 /* ── MODAL ── */
 .modal-overlay {
@@ -15413,23 +15536,15 @@ body::after {
 
     </div><!-- /main-panel -->
 
-    <div id="graph-panel">
-      <div id="graph-head">NLP Graph Automatı · Canlı Eğri</div>
-      <div id="graph-wrap">
-        <img id="graph-image" alt="Matplotlib grafik görünümü" />
-        <div id="graph-fallback">Matplotlib grafik bekleniyor…</div>
-      </div>
-    </div>
-
   </div><!-- /app grid -->
 
   <!-- BOTTOM STATUS -->
   <div id="bottom-status">
-    <span>ASCIIMATİK v2.0 · Vue 3</span>
+    <span>DOE UI v3 · Vue 3</span>
     <span id="route-display">Route: {{ stats.layout }}</span>
     <span id="reward-display">Reward: {{ stats.reward }}</span>
     <span>Süre: {{ stats.elapsed }}</span>
-    <span style="margin-left:auto;color:var(--text3);">phi4:14b @ Ollama · Algoritmik ASCII Engine · No Hardcoding</span>
+    <span style="margin-left:auto;color:var(--text3);">Deterministic Output Engine · Pure JSON · No Hardcoding</span>
   </div>
 
   <!-- ── SORU EKLEME MODALI (vue-app içinde — direktifler çalışır) ── -->
@@ -15542,8 +15657,6 @@ createApp({
       searchQueryWeb: '',    // Web arama sorgusu
       searchLoading: false,
       searchResult: null,
-      graphData: null,
-      graphImage: '',
     };
   },
 
@@ -15567,7 +15680,6 @@ createApp({
     }
     // Periyodik Q-state güncelleme
     setInterval(() => this.fetchQState(), 5000);
-    this.$nextTick(() => this.renderGraph(null));
   },
 
   methods: {
@@ -15638,11 +15750,9 @@ createApp({
 
         const data = await res.json();
         this.outputClass  = 'ok';
-        this.output       = data.ascii;
         this.lastResult   = data;   // PDF için sakla
-        this.graphData    = data.graph_data || null;
-        this.graphImage   = data.graph_image || '';
-        this.$nextTick(() => this.renderGraph(this.graphData, this.graphImage));
+        const pure = data.doe_json || {};
+        this.output = JSON.stringify(pure, null, 2);
 
         // Stats güncelle
         this.stats = { layout: data.layout, reward: data.reward, elapsed: elapsed + 's', intent: data.intent, episode: data.episode };
@@ -15681,9 +15791,6 @@ createApp({
       this.activeId    = null;
       this.searchQuery = '';
       this.lastResult  = null;
-      this.graphData   = null;
-      this.graphImage  = '';
-      this.$nextTick(() => this.renderGraph(null, ''));
       this.stats       = { layout: '—', reward: '—', elapsed: '—', intent: '—', episode: this.stats.episode };
       ['st-route','st-reward','st-intent'].forEach(id => {
         document.getElementById(id).textContent = '—';
@@ -15881,22 +15988,6 @@ createApp({
     },
 
 
-    renderGraph(payload, imageData = '') {
-      const img = document.getElementById('graph-image');
-      const fallback = document.getElementById('graph-fallback');
-      if (!img || !fallback) return;
-
-      const src = imageData || (payload && payload.image_data) || '';
-      if (src) {
-        img.src = src;
-        img.style.display = 'block';
-        fallback.style.display = 'none';
-      } else {
-        img.removeAttribute('src');
-        img.style.display = 'none';
-        fallback.style.display = 'flex';
-      }
-    },
 
 
     toast(msg, type = 'green') {
@@ -17764,43 +17855,49 @@ def solve():
         symbolic_bypass=symbolic_bypass,
     )
 
-    # ── 5. Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
-    sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+    # ── 5. DOE: canonicalization + precision control + schema generation ────
+    canonical_sol = _result_canonicalizer.canonicalize(sol_data)
+    precision_policy = _precision_controller.policy(question, canonical_sol.get("type", ""))
+    graph_spec = _graph_linearizer.build(canonical_sol.get("type", ""), solver_ctx)
+    doe_json = _output_schema_generator.generate(
+        question=question,
+        canonical_sol=canonical_sol,
+        signals=signals,
+        consistency_score=consistency_score,
+        graph_spec=graph_spec,
+    )
+    doe_json = _precision_controller.apply(doe_json, precision_policy)
 
     # ── 6. ASCII render ───────────────────────────────────────────────────────
-    ascii_out = engine.render(layout, sol_data)
+    ascii_out = engine.render(layout, canonical_sol)
     q_box = engine.q_info_box(layout, features, adjusted_reward, q_vals, router.episode)
-    sem_box = _build_sem_box(signals, sol_data)
+    sem_box = _build_sem_box(signals, canonical_sol)
     solver_box = _build_solver_box(solver_ctx)
     # GT ek kutusu (bypass varsa renderer zaten solver_box içinde gösteriyor)
-    gt_extra = sol_data.get("_gt_extra_box", "")
+    gt_extra = canonical_sol.get("_gt_extra_box", "")
     if gt_extra:
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
     else:
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
 
-    graph_payload = _build_graph_automaton_payload(question, sol_data)
-    graph_image = _render_matplotlib_graph_base64(graph_payload)
-    if isinstance(graph_payload, dict):
-        graph_payload["image_data"] = graph_image
-
     return jsonify(
         {
             "ascii": full_ascii,
+            "doe_json": doe_json,
             "layout": layout,
             "intent": features.get("intent", "?"),
             "reward": adjusted_reward,
             "episode": router.episode,
             "q_vals": {str(k): float(v) for k, v in (q_vals or {}).items()},
-            "sol_type": str(sol_data.get("type", "?")),
-            "answer": str(sol_data.get("answer", "?")),
+            "sol_type": str(canonical_sol.get("type", "?")),
+            "answer": str(canonical_sol.get("answer", "?")),
             "consistency_score": float(consistency_score),
-            "violations": [str(v) for v in sol_data.get("_consistency_violations", [])],
+            "violations": [str(v) for v in canonical_sol.get("_consistency_violations", [])],
             "signals": {
                 k: (v if isinstance(v, (str, int, float, bool)) else str(v))
                 for k, v in signals.items()
             },
-            "attempts": int(sol_data.get("_attempts", 1)),
+            "attempts": int(canonical_sol.get("_attempts", 1)),
             # Solver pipeline sonuçları
             "math_ast_type": solver_ctx["math_ast"].get("type", "general"),
             "chosen_solver": solver_ctx.get("chosen_solver", "LLM"),
@@ -17809,15 +17906,8 @@ def solve():
             "mc_agreement": solver_ctx["mc_result"].get("agreement"),
             # PDF için ek alanlar
             "question": question,
-            "steps": sol_data.get("steps", []),
-            "formula": str(sol_data.get("formula", "")),
-            "graph_data": graph_payload,
-            "graph_image": graph_image,
-            "graph_score": (
-                graph_payload.get("quality", {}).get("score")
-                if isinstance(graph_payload, dict)
-                else None
-            ),
+            "steps": canonical_sol.get("steps", []),
+            "formula": str(canonical_sol.get("formula", "")),
         }
     )
 
