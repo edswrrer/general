@@ -45,60 +45,6 @@ Aşağıdaki modüller mevcut deterministik solver mimarisinde tipik olarak eksi
 - Uncertainty Reporter
 - Safety & Content Policy Guard
 
-### E. Wolfram-Style Emergent System Eksikleri (Yeni Kritik Katman)
-- Hypergraph Builder (binary graph yerine n-ary ilişki)
-- Hypergraph Rewrite Core (pattern → rewrite)
-- Graph Evolution Loop (`G(t+1)=rewrite(G(t))`)
-- Emergent Equation Extraction
-- Variable Assignment Engine (self-physics/self-logic)
-- Bayesian Assumption Layer (node/edge-level posterior)
-
----
-
-## 2.1) Yeni Ana Çekirdek: Hypergraph Rewriting Core (HRC)
-
-Bu doküman artık klasik pipeline’a ek olarak **rewriting-based emergent system** içerir:
-
-```text
-Problemi al
-→ hypergraph olarak aç
-→ rewrite kurallarıyla evrimlet
-→ emergent denklemleri çıkar
-→ denklemlere değer/varsayım ata
-→ sistem kendi fizik/mantığını kursun
-```
-
-### 2.1.1 HRC Alt Modülleri
-
-1. **Hypergraph Builder**
-   - Metni n-ary ilişkilerle temsil eder.
-   - Örnek hyperedge: `(actor, event, medium, frame)`  
-     (örn. `(particle, interacts, field, spacetime_patch)`).
-
-2. **Rewrite Rule Engine**
-   - Kural biçimi: `pattern_hyperedge_set -> replacement_hyperedge_set`
-   - Kural tipleri:
-     - physics-prior rewrite
-     - symmetry rewrite
-     - paradox override rewrite
-     - speculative domain rewrite (quantum/GR/astro/multiverse)
-
-3. **Graph Evolution Loop**
-   - Ayrık adımda evrim: `G_{t+1} = R(G_t, θ_t)`
-   - `θ_t`: o adımda aktif Bayes parametreleri/kısıtları.
-
-4. **Emergent Equation Extraction**
-   - Evrimleşen hipergraftan invariant, conservation ve ilişki kalıpları çekilir.
-   - Sonuç: aday denklem ailesi + confidence.
-
-5. **Variable Assignment Engine**
-   - Denklemdeki değişkenleri domain ve boyut (dimension) bilgisiyle örnekler.
-   - Deterministik değil; posterior güdümlü varsayım üretir.
-
-6. **Bayesian Assumption Layer**
-   - Node/edge/rule düzeyinde prior → posterior güncellemesi yapar.
-   - Çıktı: “hangi varsayım neden seçildi?” izlenebilirlik kaydı.
-
 ---
 
 ## 3) Katmanlı Hiyerarşi (Önerilen)
@@ -116,49 +62,35 @@ L2  Semantic Modeling
     ├─ Latent Variable Generator
     └─ Assumption Registry
 
-L3  Hypergraph Construction
-    ├─ Hypergraph Builder
-    ├─ Hyperedge Typing
-    └─ Initial Node-State Seeder
-
-L4  Rewrite & Emergence Core
-    ├─ Rewrite Rule Engine
-    ├─ Graph Evolution Loop
-    ├─ Emergence Detector
-    └─ Contradiction/Paradox Trigger
-
-L5  World + Equation Model
+L3  World + Equation Model
     ├─ World Model Builder
     ├─ Relation Discovery Engine
     ├─ Equation Discovery Engine
-    ├─ Emergent Equation Extraction
     └─ Multi-Hypothesis Generator
 
-L6  Inference & Simulation
+L4  Inference & Simulation
     ├─ Bayesian Inference Core
     ├─ Bayesian Prior Layer
-    ├─ Bayesian Assumption Layer
     ├─ Monte Carlo Simulation
     ├─ Causal Graph Engine
-    ├─ Variable Assignment Engine
     └─ Equation Validation Loop
 
-L7  Specialized Modes
+L5  Specialized Modes
     ├─ Realistic Mode Pipeline
     ├─ Paradox Mode Pipeline
     └─ Hybrid Mode Pipeline
 
-L8  Risk/Impact Estimation
+L6  Risk/Impact Estimation
     ├─ Trauma Estimation Model (domain-specific scoring)
     └─ Uncertainty + Confidence Scoring
 
-L9  Narrative & Explanation
+L7  Narrative & Explanation
     ├─ Explanation Mode Selector
     ├─ Scientific Report Generator
     ├─ Dramatic Narrative Generator
     └─ Paradox Narrative Generator
 
-L10 Safety & Governance
+L8  Safety & Governance
     ├─ Policy Guard
     ├─ Output Sanitizer
     └─ Trace & Audit Logger
@@ -173,13 +105,8 @@ L10 Safety & Governance
 ```text
 Prompt
 → Intent Splitter (REALISTIC)
-→ Hypergraph Builder
-→ Rewrite Rule Engine (physics-preserving)
-→ Graph Evolution Loop
-→ Emergent Equation Extraction
 → World Model Builder
 → Bayesian Priors
-→ Variable Assignment Engine
 → Monte Carlo Sampling
 → Causal Graph Propagation
 → Impact/Trauma Estimation
@@ -196,9 +123,6 @@ Prompt
 ```text
 Prompt
 → Intent Splitter (PARADOX)
-→ Hypergraph Builder
-→ Rewrite Rule Engine (paradox-enabled)
-→ Graph Evolution Loop (self-conflict attractors)
 → Constraint Builder (A→B, B→C)
 → Paradox Injector (C→¬A vb.)
 → Self-Trap Loop
@@ -215,9 +139,6 @@ Prompt
 ```text
 Prompt
 → Intent Splitter (HYBRID)
-→ Hypergraph Builder
-→ Dual Rewrite Profile (physics + paradox)
-→ Emergent Equation Extraction
 → World Model
 → Equation Discovery + Bayesian Selection
 → Partial Rule Break Layer
@@ -277,77 +198,6 @@ Prompt
 
 ---
 
-## 5.4.1 Hypergraph Builder (Yeni)
-**Görev:** Metni klasik graf yerine hipergrafa dönüştürmek.
-
-Temsil:
-- `Node`: varlık, olay, durum, gözlem, çerçeve
-- `Hyperedge`: çoklu ilişki (2’den fazla düğüm)
-- `Tag`: domain (`quantum`, `gr`, `astro`, `multiverse`, `logic`)
-
-Örnek:
-```json
-{
-  "nodes": ["particle_a", "field_phi", "region_r1", "observer_o1"],
-  "hyperedges": [
-    {"type": "interaction", "members": ["particle_a", "field_phi", "region_r1"]},
-    {"type": "measurement", "members": ["observer_o1", "particle_a", "region_r1"]}
-  ]
-}
-```
-
----
-
-## 5.4.2 Rewrite Rule Engine (Yeni)
-**Görev:** Hypergraph üzerinde desen eşleştirip yeniden yazma uygulamak.
-
-Kural şablonu:
-```text
-if match(Pattern_i, G_t):
-    G_t <- (G_t - Pattern_i) U Replacement_i
-```
-
-Kural sınıfları:
-- `R_phys`: fizik tutarlılığı koruyan rewrite’lar
-- `R_spec`: spekülatif fizik rewrite’ları
-- `R_para`: bilinçli çelişki/paradoks rewrite’ları
-
----
-
-## 5.4.3 Graph Evolution Loop (Yeni)
-**Görev:** Yeniden yazmaları zamana bağlı evrim sürecine dönüştürmek.
-
-```text
-G_0 = BuildHypergraph(prompt)
-for t in 0..T:
-    choose R_t ~ P(R | G_t, context)
-    G_{t+1} = Apply(R_t, G_t)
-    detect emergent motifs / invariants / contradictions
-```
-
----
-
-## 5.4.4 Emergent Equation Extraction (Yeni)
-**Görev:** Evrimleşmiş hipergraftan denklem keşfi.
-
-Yöntem:
-1. motif mining
-2. symmetry/invariant detection
-3. symbolic candidate synthesis
-4. Bayesian scoring
-
-Çıktı:
-```json
-{
-  "equations": [
-    {"expr": "dPsi/dt = F(Psi, g_mu_nu, phi)", "score": 0.71},
-    {"expr": "K(r) ~ alpha/r^2 + beta*exp(-lambda r)", "score": 0.63}
-  ]
-}
-```
-
----
-
 ## 5.5 Equation Discovery Engine (EDE)
 
 Üç kanallı aday üretim:
@@ -371,19 +221,6 @@ Temel görevler:
 
 Skorlama:
 - `P(H | D) ∝ P(D | H) P(H)`
-
----
-
-## 5.6.1 Bayesian Assumption Layer (Güçlendirilmiş)
-Node/edge/rule düzeyinde varsayım ataması:
-
-```text
-P(assumption | node, domain, evidence)
-P(rule_active | G_t, mode, safety_flags)
-P(variable_range | equation, domain_tag)
-```
-
-Bu katman, “hangi sayı neden seçildi?” sorusunu açıklanabilir hale getirir.
 
 ---
 
@@ -445,17 +282,6 @@ Seçenekler:
 
 ---
 
-## 5.11 Variable Assignment Engine (Yeni)
-**Görev:** Emergent denklemlere boyutsal ve olasılıksal olarak tutarlı değer/dağılım atamak.
-
-Adımlar:
-1. dimension check (birim tutarlılığı)
-2. domain prior binding (quantum/GR/astro/multiverse)
-3. posterior sampling
-4. consistency repair (gerektiğinde yeniden örnekleme)
-
----
-
 ## 6) Birleştirilmiş Veri Sözleşmesi (Interface Contract)
 
 ```json
@@ -466,16 +292,6 @@ Adımlar:
   "priors": {},
   "hypotheses": [],
   "selected_model": {},
-  "hypergraph": {
-    "nodes": [],
-    "hyperedges": [],
-    "time_steps": 0
-  },
-  "rewrite": {
-    "rules_applied": [],
-    "evolution_log": [],
-    "emergent_motifs": []
-  },
   "simulation": {
     "samples": 10000,
     "outputs": {},
@@ -504,44 +320,21 @@ Adımlar:
 ```mermaid
 flowchart TD
 A[User Prompt] --> B[Intent Splitter]
-B --> C[Token/Semantic Parse]
-C --> D[Hypergraph Builder]
-D --> E[Rewrite Rule Engine]
-E --> F[Graph Evolution Loop]
-F --> G[Emergent Structure]
-G --> H[Equation Extraction]
-H --> I[Variable Assignment]
-I --> J[Bayesian Assumption + Sampling]
-J --> K[Simulation + Causal Graph]
-K --> L{Mode}
-L -->|Realistic| M[Scientific Explain]
-L -->|Paradox| N[Self-Trap Narrative]
-L -->|Hybrid| O[Mixed Output]
-M --> P[Safety Guard]
-N --> P
-O --> P
-P --> Q[Final Output]
+B --> C[Entity + Variable Extractor]
+C --> D[Latent Variable Generator]
+D --> E[Relation Discovery]
+E --> F[Equation Hypothesis Generator]
+F --> G[Bayesian Model Selection]
+G --> H[Simulation + Causal Graph]
+H --> I{Mode}
+I -->|Realistic| J[Trauma + Scientific Explain]
+I -->|Paradox| K[Constraint + Injector + Self-Trap]
+I -->|Hybrid| L[Dual Branch + Mixed Output]
+J --> M[Safety Guard]
+K --> M
+L --> M
+M --> N[Final Output]
 ```
-
----
-
-## 7.1) Wolfram-Tarzı Rewrite Pipeline (Özet)
-
-```text
-Metin
-→ Hypergraph Builder
-→ Rewrite Engine
-→ Graph Evolution Loop
-→ Emergent Structure
-→ Equation Extraction
-→ Variable Assignment
-→ Bayesian Sampling
-→ Simulation
-→ Explanation
-```
-
-Bu akış, klasik AST tabanlı çözümleyiciden farklı olarak denklemleri sabit kabul etmez;  
-**denklem ve fiziksel mantığı emergent süreçte üretir.**
 
 ---
 
