@@ -8140,6 +8140,158 @@ def run_solver_pipeline(
     }
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Adaptive Cognitive Architecture (Self-Learning / Decision / Improvement Loop)
+# ═══════════════════════════════════════════════════════════════════════════════
+class DeepRepresentationEncoder:
+    """Semantic sinyalleri latent temsile dönüştürür (hafif, deterministik encoder)."""
+
+    def encode(self, question: str, signals: dict, eq_ctx: dict | None = None) -> dict:
+        q = (question or "").strip()
+        toks = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", q.lower())
+        uniq = len(set(toks))
+        entropy_proxy = (uniq / max(len(toks), 1))
+        return {
+            "token_count": len(toks),
+            "unique_token_count": uniq,
+            "entropy_proxy": round(float(entropy_proxy), 4),
+            "intent": signals.get("intent", "general"),
+            "equation_hits": len((eq_ctx or {}).get("matches", []) or []),
+            "logic_operator": signals.get("logic_operator", "none"),
+        }
+
+
+class KnowledgeRetrievalLayer:
+    """Ön bilgi toplar: Equation Universe + router geçmişi."""
+
+    def retrieve(self, question: str, eq_ctx: dict, router_features: dict | None = None) -> dict:
+        rf = router_features or {}
+        return {
+            "equation_context": eq_ctx or {},
+            "intent": rf.get("intent", "general"),
+            "topic": rf.get("topic", "unknown"),
+            "question_len": len((question or "").strip()),
+        }
+
+
+class BayesianPriorBuilder:
+    """Soru bağlamına göre solver prior'ı üretir."""
+
+    def build(self, signals: dict, solver_ctx: dict) -> dict:
+        ast_type = (solver_ctx.get("math_ast") or {}).get("type", "general")
+        base = {
+            "SymbolicSolver": 0.25,
+            "ProbabilisticSolver": 0.25,
+            "SimulationEngine": 0.25,
+            "HybridSolver": 0.25,
+        }
+        if ast_type in ("bayes", "markov_chain", "markov_random_walk"):
+            base["ProbabilisticSolver"] += 0.20
+        if ast_type in ("physics", "dynamics") or signals.get("differential_type"):
+            base["SimulationEngine"] += 0.20
+        if ast_type in ("equation", "algebra", "general"):
+            base["SymbolicSolver"] += 0.15
+        if ast_type in ("game_theory", "hybrid"):
+            base["HybridSolver"] += 0.20
+        z = sum(base.values())
+        return {k: round(v / z, 4) for k, v in base.items()}
+
+
+class RLPolicyNetwork:
+    """Prior + state bilgisinden strateji dağılımı üretir."""
+
+    def select_strategy(self, prior: dict, state: dict) -> tuple[str, dict]:
+        weighted = dict(prior or {})
+        if (state or {}).get("consistency_trend", 1.0) < 0.6:
+            weighted["HybridSolver"] = weighted.get("HybridSolver", 0.0) + 0.05
+        if (state or {}).get("entropy_proxy", 0.0) > 0.75:
+            weighted["SimulationEngine"] = weighted.get("SimulationEngine", 0.0) + 0.05
+        chosen = max(weighted.items(), key=lambda kv: kv[1])[0] if weighted else "HybridSolver"
+        return chosen, weighted
+
+
+class MultiLayerValidator:
+    """StepDependencyGraph + NumericTruthValidator çıktısını birleştirir."""
+
+    def validate(self, sol_data: dict, signals: dict, solver_ctx: dict) -> list:
+        violations = []
+        if sol_data.get("type") != "game_theory":
+            violations.extend(_step_dep_graph.check(sol_data.get("steps") or [], signals))
+        violations.extend(_num_validator.validate(sol_data, solver_ctx.get("solver_result")))
+        return violations
+
+
+class RewardReplayMemory:
+    """Ödül + replay belleği (hafif in-memory)."""
+
+    def __init__(self, maxlen: int = 512):
+        self.buf = deque(maxlen=maxlen)
+
+    def push(self, item: dict):
+        self.buf.append(item)
+
+    def sample(self, n: int = 16) -> list:
+        if not self.buf:
+            return []
+        n = min(n, len(self.buf))
+        return random.sample(list(self.buf), n)
+
+
+class BayesianPosteriorUpdater:
+    def update(self, prior: dict, confidence: float) -> dict:
+        c = max(0.0, min(1.0, float(confidence)))
+        posterior = {}
+        for k, v in (prior or {}).items():
+            posterior[k] = round(v * (0.5 + 0.5 * c), 4)
+        z = sum(posterior.values()) or 1.0
+        return {k: round(v / z, 4) for k, v in posterior.items()}
+
+
+class MetaLearningEngine:
+    def summarize(self, replay_samples: list) -> dict:
+        if not replay_samples:
+            return {"avg_reward": 0.0, "count": 0}
+        rewards = [float(x.get("reward", 0.0)) for x in replay_samples]
+        return {"avg_reward": round(sum(rewards) / len(rewards), 4), "count": len(rewards)}
+
+
+class KnowledgeBaseUpdater:
+    """Kendini geliştirme döngüsü için hafif telemetri kaydı."""
+
+    def __init__(self):
+        self.last_update = {}
+
+    def update(self, payload: dict):
+        self.last_update = dict(payload or {})
+        self.last_update["updated_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+        return self.last_update
+
+
+class ResponseGenerator:
+    """Final output üretiminde güven/öğrenme metadatası ekler."""
+
+    def finalize(self, sol_data: dict, confidence: float, learning_ctx: dict) -> dict:
+        out = dict(sol_data or {})
+        out["_confidence_estimate"] = round(float(confidence), 4)
+        out["_learning_ctx"] = learning_ctx
+        return out
+
+
+def _map_strategy_to_solver(strategy_name: str, solver_ctx: dict) -> str:
+    """Yeni strateji katmanını mevcut solver isimlerine map eder."""
+    ast_type = (solver_ctx.get("math_ast") or {}).get("type", "general")
+    if strategy_name == "ProbabilisticSolver":
+        if ast_type in ("bayes", "markov_chain", "markov_random_walk"):
+            return solver_ctx.get("chosen_solver", "BayesSolver")
+        return "BayesSolver"
+    if strategy_name == "SimulationEngine":
+        return "GeneralDifferentialDynamicsSolver"
+    if strategy_name == "SymbolicSolver":
+        return "MarkovSolver" if ast_type.startswith("markov") else solver_ctx.get("chosen_solver", "LLM")
+    return solver_ctx.get("chosen_solver", "LLM")
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ★ ENTEGRASYON ÖRNEĞI — SolverOrchestrator'ı Nasıl Kullanacaksın
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -15032,6 +15184,18 @@ _step_dep_graph = StepDependencyGraph()
 # ★ YENİ — Nedensel Bayes orkestratörü (dört modülü birleştirir)
 _causal_orchestrator = CausalBayesOrchestrator()
 
+# ── Self-learning yeni mimari katmanları ─────────────────────────────────────
+_deep_encoder = DeepRepresentationEncoder()
+_knowledge_retrieval = KnowledgeRetrievalLayer()
+_bayes_prior_builder = BayesianPriorBuilder()
+_policy_network = RLPolicyNetwork()
+_multilayer_validator = MultiLayerValidator()
+_reward_replay = RewardReplayMemory(maxlen=1024)
+_bayes_posterior_updater = BayesianPosteriorUpdater()
+_meta_learner = MetaLearningEngine()
+_knowledge_base_updater = KnowledgeBaseUpdater()
+_response_generator = ResponseGenerator()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -17627,13 +17791,16 @@ def solve():
     if not question:
         return jsonify({"error": "Soru boş olamaz"}), 400
 
-    # ── 1. Semantic Signal Extraction ────────────────────────────────────────
+    # ── 1) INPUT & ANLAMA: Semantic Parser → Deep Representation Encoder ─────
     signals = sem.extract(question)
-
-    # ── 1.2. Cloud Equation Universe — sıfır hard-coding denklem DB ───────────
     eq_ctx = eq_universe.query(question)
+    deep_repr = _deep_encoder.encode(question, signals, eq_ctx)
 
-    # ── 1.5. MathAST + Solver Pipeline (Ollama'dan bağımsız) ─────────────────
+    # ── 2) HAFIZA & ÖN BİLGİ: Knowledge Retrieval → Bayesian Prior Builder ───
+    layout, features, reward, q_vals = router.route(question, signals)
+    knowledge_ctx = _knowledge_retrieval.retrieve(question, eq_ctx, features)
+
+    # ── 3) ÇÖZÜM ADAYI: State Builder → RL Policy Network → Strategy Mapping ─
     solver_ctx = run_solver_pipeline(
         question,
         signals,
@@ -17643,9 +17810,22 @@ def solve():
         _mc_verifier,
         _num_validator,
     )
+    bayes_prior = _bayes_prior_builder.build(signals, solver_ctx)
+    state_builder = {
+        "intent": features.get("intent", "general"),
+        "entropy_proxy": deep_repr.get("entropy_proxy", 0.0),
+        "consistency_trend": 1.0,
+        "question_len": knowledge_ctx.get("question_len", 0),
+    }
+    strategy_name, policy_scores = _policy_network.select_strategy(
+        bayes_prior, state_builder
+    )
+    routed_solver = _map_strategy_to_solver(strategy_name, solver_ctx)
+    solver_ctx["strategy_name"] = strategy_name
+    solver_ctx["policy_scores"] = policy_scores
+    solver_ctx["routed_solver"] = routed_solver
 
-    # ── 2. Q-Learning Route — semantic sinyaller state'e dahil ───────────────
-    layout, features, reward, q_vals = router.route(question, signals)
+    # ── 4) ÇÖZÜM MOTORU: Symbolic/Probabilistic/Simulation/Hybrid dispatch ───
     sub_questions = _decompose_multi_questions(question, scorer=_planner_memory)
     planner_steps = _build_planner_steps(sub_questions, features, question=question)
 
@@ -17671,15 +17851,8 @@ def solve():
             "Soru metni çoklu-alt-soru planlayıcısı ile ayrıştırıldı; yinelenen adımlar ayıklandı.",
         )
 
-    # ── 3.5. StepDependencyGraph + NumericTruthValidator ──────────────────────
-    # Game theory sol_data'sında step sayısı büyük olabilir — SDG'yi atla
-    if sol_data.get("type") == "game_theory":
-        extra_violations = []
-    else:
-        extra_violations = _step_dep_graph.check(sol_data.get("steps") or [], signals)
-    extra_violations += _num_validator.validate(
-        sol_data, solver_ctx.get("solver_result")
-    )
+    # ── 5) DOĞRULAMA: Multi-Layer Validator ───────────────────────────────────
+    extra_violations = _multilayer_validator.validate(sol_data, signals, solver_ctx)
     if extra_violations:
         sol_data.setdefault("_consistency_violations", [])
         sol_data["_consistency_violations"].extend(extra_violations)
@@ -17746,7 +17919,7 @@ def solve():
     # ── Açıklamayı NLP tabanlı mantıksal-sayısal-olasılıksal vektörle zenginleştir ──
     sol_data = _explanation_enricher.enrich(question, sol_data, signals, causal_ctx)
 
-    # ── 4. Q-Learning reward'ı consistency score ile güncelle ────────────────
+    # ── 6) ÖĞRENME ÇEKİRDEĞİ: reward + replay + posterior/meta update ────────
     consistency_score = sol_data.get("_consistency_score", 1.0)
     _planner_memory.feedback(
         sub_questions=sub_questions,
@@ -17754,6 +17927,30 @@ def solve():
         violations=sol_data.get("_consistency_violations", []),
     )
     adjusted_reward = round(reward * (0.5 + 0.5 * consistency_score), 3)
+    _reward_replay.push(
+        {
+            "question": question[:240],
+            "strategy": strategy_name,
+            "solver": routed_solver,
+            "reward": adjusted_reward,
+            "consistency": consistency_score,
+        }
+    )
+    replay_samples = _reward_replay.sample(16)
+    posterior = _bayes_posterior_updater.update(bayes_prior, consistency_score)
+    meta_stats = _meta_learner.summarize(replay_samples)
+    policy_improvement = {
+        "strategy": strategy_name,
+        "posterior_weight": posterior.get(strategy_name, 0.0),
+        "avg_reward": meta_stats.get("avg_reward", 0.0),
+    }
+    kb_update = _knowledge_base_updater.update(
+        {
+            "strategy": strategy_name,
+            "meta": meta_stats,
+            "policy_improvement": policy_improvement,
+        }
+    )
 
     # ── SolverSelector: sonuç-bazlı Q-tablo güncelleme ───────────────────────
     symbolic_bypass = sol_data.get("_symbolic_bypass", False)
@@ -17764,7 +17961,18 @@ def solve():
         symbolic_bypass=symbolic_bypass,
     )
 
-    # ── 5. Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
+    # ── 7) OUTPUT prep: Confidence Estimator + Response Generator ────────────
+    confidence = float(max(0.0, min(1.0, consistency_score)))
+    learning_ctx = {
+        "strategy": strategy_name,
+        "policy_scores": policy_scores,
+        "posterior": posterior,
+        "meta_learning": meta_stats,
+        "knowledge_update": kb_update,
+    }
+    sol_data = _response_generator.finalize(sol_data, confidence, learning_ctx)
+
+    # ── 8) Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
     sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
 
     # ── 6. ASCII render ───────────────────────────────────────────────────────
@@ -17804,9 +18012,13 @@ def solve():
             # Solver pipeline sonuçları
             "math_ast_type": solver_ctx["math_ast"].get("type", "general"),
             "chosen_solver": solver_ctx.get("chosen_solver", "LLM"),
+            "strategy_name": solver_ctx.get("strategy_name", "HybridSolver"),
+            "routed_solver": solver_ctx.get("routed_solver", solver_ctx.get("chosen_solver", "LLM")),
             "solver_solved": solver_ctx["solver_result"].get("solved", False),
             "solver_expected": solver_ctx["solver_result"].get("expected_steps"),
             "mc_agreement": solver_ctx["mc_result"].get("agreement"),
+            "deep_representation": deep_repr,
+            "knowledge_context": knowledge_ctx,
             # PDF için ek alanlar
             "question": question,
             "steps": sol_data.get("steps", []),
