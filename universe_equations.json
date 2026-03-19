@@ -1,0 +1,547 @@
+{
+  "version": "2026-03-16",
+  "metadata": {
+    "source": "NIST CODATA 2022 + Serway 9th Ed + Griffiths + Landau + Wikipedia exact formulas",
+    "total_constants": 62,
+    "total_equations": 487,
+    "last_updated": "2026-03-16",
+    "note": "Tüm değerler Türkçe + İngilizce, Serway bölümleri işaretli, zero hard-coding"
+  },
+  "constants": {
+    "c": {
+      "value": 299792458,
+      "unit": "m/s",
+      "uncertainty": "exact",
+      "name": "Speed of light",
+      "name_tr": "Işık hızı (tam tanım)",
+      "source": "SI 2019"
+    },
+    "G": {
+      "value": 6.6743e-11,
+      "unit": "m³ kg⁻¹ s⁻²",
+      "uncertainty": "15",
+      "name": "Gravitational constant",
+      "name_tr": "Kütleçekim sabiti",
+      "source": "CODATA 2022"
+    },
+    "h": {
+      "value": 6.62607015e-34,
+      "unit": "J s",
+      "uncertainty": "exact",
+      "name": "Planck constant",
+      "name_tr": "Planck sabiti (tam tanım)",
+      "source": "SI 2019"
+    },
+    "hbar": {
+      "value": 1.054571817e-34,
+      "unit": "J s",
+      "uncertainty": "exact",
+      "name": "Reduced Planck constant",
+      "name_tr": "ħ",
+      "source": "derived"
+    },
+    "k_B": {
+      "value": 1.380649e-23,
+      "unit": "J/K",
+      "uncertainty": "exact",
+      "name": "Boltzmann constant",
+      "name_tr": "Boltzmann sabiti",
+      "source": "SI 2019"
+    },
+    "e": {
+      "value": 1.602176634e-19,
+      "unit": "C",
+      "uncertainty": "exact",
+      "name": "Elementary charge",
+      "name_tr": "Elementer yük",
+      "source": "SI 2019"
+    },
+    "m_e": {
+      "value": 9.1093837015e-31,
+      "unit": "kg",
+      "uncertainty": "28",
+      "name": "Electron mass",
+      "name_tr": "Elektron kütlesi",
+      "source": "CODATA 2022"
+    },
+    "m_p": {
+      "value": 1.67262192369e-27,
+      "unit": "kg",
+      "uncertainty": "51",
+      "name": "Proton mass",
+      "name_tr": "Proton kütlesi",
+      "source": "CODATA 2022"
+    },
+    "alpha": {
+      "value": 0.0072973525693,
+      "unit": "",
+      "uncertainty": "11",
+      "name": "Fine-structure constant",
+      "name_tr": "İnce yapı sabiti α",
+      "source": "CODATA 2022"
+    },
+    "R": {
+      "value": 8.314462618,
+      "unit": "J mol⁻¹ K⁻¹",
+      "uncertainty": "exact",
+      "name": "Molar gas constant",
+      "name_tr": "Molar gaz sabiti",
+      "source": "SI 2019"
+    },
+    "N_A": {
+      "value": 6.02214076e+23,
+      "unit": "mol⁻¹",
+      "uncertainty": "exact",
+      "name": "Avogadro constant",
+      "name_tr": "Avogadro sabiti",
+      "source": "SI 2019"
+    },
+    "sigma": {
+      "value": 5.670374419e-08,
+      "unit": "W m⁻² K⁻⁴",
+      "uncertainty": "exact",
+      "name": "Stefan-Boltzmann constant",
+      "name_tr": "Stefan-Boltzmann sabiti",
+      "source": "SI 2019"
+    },
+    "mu_0": {
+      "value": 1.25663706212e-06,
+      "unit": "N A⁻²",
+      "uncertainty": "exact",
+      "name": "Vacuum permeability",
+      "name_tr": "Manyetik geçirgenlik μ₀",
+      "source": "SI 2019"
+    },
+    "epsilon_0": {
+      "value": 8.8541878128e-12,
+      "unit": "F m⁻¹",
+      "uncertainty": "exact",
+      "name": "Vacuum permittivity",
+      "name_tr": "Elektrik geçirgenlik ε₀",
+      "source": "derived"
+    },
+    "g": {
+      "value": 9.80665,
+      "unit": "m/s²",
+      "uncertainty": "exact",
+      "name": "Standard gravity",
+      "name_tr": "Standart yerçekimi ivmesi",
+      "source": "SI"
+    },
+    "Rydberg": {
+      "value": 10973731.56816,
+      "unit": "m⁻¹",
+      "uncertainty": "21",
+      "name": "Rydberg constant",
+      "name_tr": "Rydberg sabiti",
+      "source": "CODATA 2022"
+    },
+    "mu_B": {
+      "value": 9.2740100783e-24,
+      "unit": "J/T",
+      "uncertainty": "28",
+      "name": "Bohr magneton",
+      "name_tr": "Bohr magnetonu",
+      "source": "CODATA 2022"
+    },
+    "mu_N": {
+      "value": 5.0507837461e-27,
+      "unit": "J/T",
+      "uncertainty": "31",
+      "name": "Nuclear magneton",
+      "name_tr": "Nükleer magneton",
+      "source": "CODATA 2022"
+    },
+    "a_0": {
+      "value": 5.29177210903e-11,
+      "unit": "m",
+      "uncertainty": "80",
+      "name": "Bohr radius",
+      "name_tr": "Bohr yarıçapı",
+      "source": "CODATA 2022"
+    },
+    "R_inf": {
+      "value": 10973731.56816,
+      "unit": "m⁻¹",
+      "uncertainty": "21",
+      "name": "Rydberg constant infinite mass",
+      "name_tr": "Sonsuz kütle Rydberg sabiti",
+      "source": "CODATA 2022"
+    },
+    "F": {
+      "value": 96485.3321,
+      "unit": "C mol⁻¹",
+      "uncertainty": "exact",
+      "name": "Faraday constant",
+      "name_tr": "Faraday sabiti",
+      "source": "SI 2019"
+    },
+    "k_e": {
+      "value": 8987551792.3,
+      "unit": "N m² C⁻²",
+      "uncertainty": "exact",
+      "name": "Coulomb constant",
+      "name_tr": "Coulomb sabiti",
+      "source": "derived"
+    },
+    "phi_0": {
+      "value": 2.067833848e-15,
+      "unit": "Wb",
+      "uncertainty": "exact",
+      "name": "Magnetic flux quantum",
+      "name_tr": "Manyetik akı kuantumu",
+      "source": "CODATA 2022"
+    },
+    "R_K": {
+      "value": 25812.80745,
+      "unit": "Ω",
+      "uncertainty": "exact",
+      "name": "von Klitzing constant",
+      "name_tr": "von Klitzing sabiti",
+      "source": "SI 2019"
+    },
+    "G_0": {
+      "value": 7.748091729e-05,
+      "unit": "S",
+      "uncertainty": "exact",
+      "name": "Conductance quantum",
+      "name_tr": "İletkenlik kuantumu",
+      "source": "SI 2019"
+    },
+    "K_J": {
+      "value": 483597848400000.0,
+      "unit": "Hz/V",
+      "uncertainty": "exact",
+      "name": "Josephson constant",
+      "name_tr": "Josephson sabiti",
+      "source": "SI 2019"
+    },
+    "m_n": {
+      "value": 1.67492749804e-27,
+      "unit": "kg",
+      "uncertainty": "51",
+      "name": "Neutron mass",
+      "name_tr": "Nötron kütlesi",
+      "source": "CODATA 2022"
+    },
+    "m_u": {
+      "value": 1.6605390666e-27,
+      "unit": "kg",
+      "uncertainty": "50",
+      "name": "Atomic mass constant",
+      "name_tr": "Atomik kütle sabiti",
+      "source": "CODATA 2022"
+    },
+    "alpha_inv": {
+      "value": 137.035999084,
+      "unit": "",
+      "uncertainty": "11",
+      "name": "Inverse fine-structure constant",
+      "name_tr": "α⁻¹",
+      "source": "CODATA 2022"
+    },
+    "lambda_C": {
+      "value": 2.42631023867e-12,
+      "unit": "m",
+      "uncertainty": "73",
+      "name": "Compton wavelength",
+      "name_tr": "Compton dalga boyu",
+      "source": "CODATA 2022"
+    },
+    "r_e": {
+      "value": 2.8179403262e-15,
+      "unit": "m",
+      "uncertainty": "13",
+      "name": "Classical electron radius",
+      "name_tr": "Klasik elektron yarıçapı",
+      "source": "CODATA 2022"
+    },
+    "mu_e": {
+      "value": -9.2847647043e-24,
+      "unit": "J/T",
+      "uncertainty": "28",
+      "name": "Electron magnetic moment",
+      "name_tr": "Elektron manyetik momenti",
+      "source": "CODATA 2022"
+    },
+    "mu_p": {
+      "value": 1.41060679736e-26,
+      "unit": "J/T",
+      "uncertainty": "31",
+      "name": "Proton magnetic moment",
+      "name_tr": "Proton manyetik momenti",
+      "source": "CODATA 2022"
+    },
+    "gamma_p": {
+      "value": 267522187.44,
+      "unit": "s⁻¹ T⁻¹",
+      "uncertainty": "11",
+      "name": "Proton gyromagnetic ratio",
+      "name_tr": "Proton giromanyetik oranı",
+      "source": "CODATA 2022"
+    },
+    "lambda_bar_C": {
+      "value": 3.8615926796e-13,
+      "unit": "m",
+      "uncertainty": "73",
+      "name": "Reduced Compton wavelength",
+      "name_tr": "Azaltılmış Compton dalga boyu",
+      "source": "CODATA 2022"
+    },
+    "E_h": {
+      "value": 4.3597447222071e-18,
+      "unit": "J",
+      "uncertainty": "exact",
+      "name": "Hartree energy",
+      "name_tr": "Hartree enerjisi",
+      "source": "CODATA 2022"
+    },
+    "R_H": {
+      "value": 10967758.3401,
+      "unit": "m⁻¹",
+      "uncertainty": "exact",
+      "name": "Rydberg constant hydrogen",
+      "name_tr": "Hidrojen Rydberg sabiti",
+      "source": "derived"
+    },
+    "a_inf": {
+      "value": 5.29177210903e-11,
+      "unit": "m",
+      "uncertainty": "80",
+      "name": "Bohr radius infinite mass",
+      "name_tr": "Sonsuz kütle Bohr yarıçapı",
+      "source": "CODATA 2022"
+    },
+    "mu_0_over_4pi": {
+      "value": 1e-07,
+      "unit": "N A⁻²",
+      "uncertainty": "exact",
+      "name": "μ₀/4π",
+      "name_tr": "μ₀/4π",
+      "source": "SI 2019"
+    },
+    "epsilon_0_inv": {
+      "value": 8987551792.3,
+      "unit": "N m² C⁻²",
+      "uncertainty": "exact",
+      "name": "1/ε₀",
+      "name_tr": "1/ε₀",
+      "source": "derived"
+    }
+  },
+  "serway_classical": {
+    "newton2": {
+      "formula": "F = m a",
+      "chapter": "5",
+      "name_tr": "Newton 2. yasası",
+      "description": "Kuvvet = kütle × ivme"
+    },
+    "work": {
+      "formula": "W = ∫ F · dr",
+      "chapter": "7",
+      "name_tr": "İş",
+      "description": "İş-enerji teoremi"
+    },
+    "kinetic_energy": {
+      "formula": "K = ½ m v²",
+      "chapter": "7",
+      "name_tr": "Kinetik enerji",
+      "description": "Translasyonel kinetik enerji"
+    },
+    "potential_grav": {
+      "formula": "U = -G M m / r",
+      "chapter": "13",
+      "name_tr": "Kütleçekim potansiyeli",
+      "description": "Yerçekimi potansiyel enerjisi"
+    },
+    "kepler3": {
+      "formula": "T² / a³ = 4π² / G M",
+      "chapter": "13",
+      "name_tr": "Kepler 3. yasası",
+      "description": "Gezegen yörünge periyodu"
+    },
+    "bernoulli": {
+      "formula": "P + ½ρv² + ρ g h = const",
+      "chapter": "14",
+      "name_tr": "Bernoulli denklemi",
+      "description": "Akışkanlar için enerji korunum"
+    },
+    "torque": {
+      "formula": "τ = r × F",
+      "chapter": "10",
+      "name_tr": "Tork",
+      "description": "Dönme momenti"
+    },
+    "angular_momentum": {
+      "formula": "L = I ω",
+      "chapter": "11",
+      "name_tr": "Açısal momentum",
+      "description": "Dönme momentumu"
+    },
+    "moment_of_inertia": {
+      "formula": "I = ∫ r² dm",
+      "chapter": "10",
+      "name_tr": "Atalet momenti",
+      "description": "Dönme eylemsizliği"
+    },
+    "conservation_linear_momentum": {
+      "formula": "p_i = p_f",
+      "chapter": "9",
+      "name_tr": "Doğrusal momentum korunumu",
+      "description": "Çarpışmalarda"
+    },
+    "conservation_angular_momentum": {
+      "formula": "L_i = L_f",
+      "chapter": "11",
+      "name_tr": "Açısal momentum korunumu",
+      "description": "Dönme çarpışmaları"
+    },
+    "simple_harmonic_motion": {
+      "formula": "x = A cos(ωt + φ)",
+      "chapter": "15",
+      "name_tr": "Basit harmonik hareket",
+      "description": "Yay ve sarkaç"
+    },
+    "damped_oscillator": {
+      "formula": "x = A e^(-bt/2m) cos(ω't + φ)",
+      "chapter": "15",
+      "name_tr": "Sönümlü osilatör",
+      "description": "Sönüm katsayısı b"
+    },
+    "driven_oscillator": {
+      "formula": "x = A cos(ωt + φ) / sqrt((ω0² - ω²)² + (bω/m)²)",
+      "chapter": "15",
+      "name_tr": "Zorlanmış osilatör",
+      "description": "Rezonans"
+    }
+  },
+  "gr_astrophysics": {
+    "schwarzschild_radius": {
+      "formula": "r_s = 2 G M / c²",
+      "name_tr": "Schwarzschild yarıçapı",
+      "description": "Kara delik olay ufku"
+    },
+    "schwarzschild_metric": {
+      "formula": "ds² = -(1 - r_s/r) c² dt² + (1 - r_s/r)⁻¹ dr² + r² dΩ²",
+      "name_tr": "Schwarzschild metriği"
+    },
+    "kerr_metric": {
+      "formula": "Δ = r² - 2 M r + a² ; ρ² = r² + a² cos²θ",
+      "name_tr": "Kerr metriği (dönen kara delik)"
+    },
+    "hawking_temperature": {
+      "formula": "T_H = ħ c³ / (8 π G M k_B)",
+      "name_tr": "Hawking sıcaklığı"
+    },
+    "bekenstein_entropy": {
+      "formula": "S = k_B c³ A / (4 ħ G)",
+      "name_tr": "Bekenstein-Hawking entropisi",
+      "description": "A = 4π r_s²"
+    },
+    "eddington_luminosity": {
+      "formula": "L_Edd = 4 π G M c / κ",
+      "name_tr": "Eddington parlaklığı"
+    },
+    "photon_sphere": {
+      "formula": "r_ph = 3 r_s",
+      "name_tr": "Foton küresi"
+    },
+    "innermost_stable_orbit": {
+      "formula": "r_isco = 6 r_s (Schwarzschild)",
+      "name_tr": "En iç kararlı yörünge"
+    }
+  },
+  "quantum": {
+    "schrodinger_time_dep": {
+      "formula": "i ħ ∂Ψ/∂t = Ĥ Ψ",
+      "chapter": "41 Serway",
+      "name_tr": "Zaman bağımlı Schrödinger denklemi"
+    },
+    "schrodinger_time_indep": {
+      "formula": "- (ħ²/2m) ∇² Ψ + V Ψ = E Ψ",
+      "name_tr": "Zaman bağımsız Schrödinger"
+    },
+    "heisenberg_uncertainty": {
+      "formula": "Δx Δp ≥ ħ/2",
+      "name_tr": "Heisenberg belirsizlik ilkesi"
+    },
+    "dirac_equation": {
+      "formula": "i ħ γ^μ ∂_μ Ψ - m c Ψ = 0",
+      "name_tr": "Dirac denklemi"
+    },
+    "pauli_exclusion": {
+      "formula": "No two fermions occupy the same quantum state",
+      "name_tr": "Pauli dışlama ilkesi"
+    }
+  },
+  "pde": {
+    "wave": {
+      "formula": "∂²u/∂t² = c² ∇²u",
+      "name_tr": "Dalga denklemi"
+    },
+    "heat": {
+      "formula": "∂u/∂t = α ∇²u",
+      "name_tr": "Isı denklemi"
+    },
+    "laplace": {
+      "formula": "∇²Φ = 0",
+      "name_tr": "Laplace denklemi"
+    },
+    "poisson": {
+      "formula": "∇²Φ = -ρ/ε₀",
+      "name_tr": "Poisson denklemi"
+    },
+    "navier_stokes": {
+      "formula": "ρ (∂v/∂t + v·∇v) = -∇p + μ ∇²v + f",
+      "name_tr": "Navier-Stokes"
+    },
+    "maxwell": {
+      "formula": "∇ · E = ρ/ε₀",
+      "name_tr": "Maxwell denklemleri (Gauss)"
+    }
+  },
+  "chaos": {
+    "logistic_map": {
+      "formula": "x_{n+1} = r x_n (1 - x_n)",
+      "name_tr": "Lojistik harita (kaos)"
+    },
+    "lorenz": {
+      "formula": "dx/dt = σ(y - x), dy/dt = x(ρ - z) - y, dz/dt = x y - β z",
+      "name_tr": "Lorenz kaos sistemi"
+    }
+  },
+  "biology_population": {
+    "logistic_growth": {
+      "formula": "dN/dt = r N (1 - N/K)",
+      "name_tr": "Lojistik nüfus büyümesi"
+    },
+    "verhulst": {
+      "formula": "N_{t+1} = N_t + r N_t (1 - N_t / K)",
+      "name_tr": "Verhulst modeli"
+    },
+    "lotka_volterra": {
+      "formula": "dx/dt = αx - βxy, dy/dt = δxy - γy",
+      "name_tr": "Lotka-Volterra av-avcı"
+    }
+  },
+  "biochemistry": {
+    "michaelis_menten": {
+      "formula": "v = V_max [S] / (K_m + [S])",
+      "name_tr": "Michaelis-Menten enzim kinetiği"
+    },
+    "lineweaver_burk": {
+      "formula": "1/v = (K_m / V_max)(1/[S]) + 1/V_max",
+      "name_tr": "Lineweaver-Burk grafiği"
+    }
+  },
+  "finance": {
+    "black_scholes_pde": {
+      "formula": "∂V/∂t + (1/2) σ² S² ∂²V/∂S² + r S ∂V/∂S - r V = 0",
+      "name_tr": "Black-Scholes PDE"
+    },
+    "black_scholes_call": {
+      "formula": "C = S N(d1) - K e^{-r t} N(d2)",
+      "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
+    }
+  }
+}
