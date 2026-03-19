@@ -17142,6 +17142,15 @@ class GraphSimulationAgent:
         best_id = max(self.q_table[state], key=self.q_table[state].get)
         return next((m for m in self.modes if m["id"] == best_id), self.modes[0])
 
+    def _pick_mode_stateless(self, state: tuple, question: str, series: list) -> dict:
+        """
+        Öğrenmeden bağımsız, deterministik mod seçimi.
+        Grafik çizimi ana öğrenme sürecini etkilemesin diye kullanılır.
+        """
+        key = f"{state}|{len(series)}|{(question or '')[:96]}"
+        idx = abs(hash(key)) % max(len(self.modes), 1)
+        return self.modes[idx]
+
     def _reward(self, mode: dict, series: list, question: str) -> float:
         q = (question or "").lower()
         r = 1.0
@@ -17163,12 +17172,23 @@ class GraphSimulationAgent:
         if self.episode % 5 == 0:
             self._save()
 
-    def build_payload(self, question: str, sol_data: dict, width: int, height: int) -> dict:
+    def build_payload(
+        self,
+        question: str,
+        sol_data: dict,
+        width: int,
+        height: int,
+        affect_learning: bool = False,
+    ) -> dict:
         series, labels = self._series_from_solution(question, sol_data)
         state = self._state(question, sol_data)
-        mode = self._pick_mode(state)
-        reward = self._reward(mode, series, question)
-        self._update(state, mode["id"], reward)
+        if affect_learning:
+            mode = self._pick_mode(state)
+            reward = self._reward(mode, series, question)
+            self._update(state, mode["id"], reward)
+        else:
+            mode = self._pick_mode_stateless(state, question, series)
+            reward = 0.0
 
         ys = [p["y"] for p in series] if series else [0.0, 1.0]
         ymin, ymax = min(ys), max(ys)
@@ -17212,15 +17232,30 @@ class GraphSimulationAgent:
             "labels": labels,
             "render_mode": mode,
             "mode_catalog_size": len(self.modes),
-            "meta": {"ymin": ymin, "ymax": ymax, "points": len(curve), "agent_episode": self.episode},
+            "meta": {
+                "ymin": ymin,
+                "ymax": ymax,
+                "points": len(curve),
+                "agent_episode": self.episode,
+                "learning_impact": bool(affect_learning),
+                "mode_reward": round(float(reward), 4),
+            },
         }
 
 
 _graph_agent = GraphSimulationAgent()
 
 
-def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
-    return _graph_agent.build_payload(question, sol_data, width, height)
+def _build_graph_automaton_payload(
+    question: str,
+    sol_data: dict,
+    width: int = 560,
+    height: int = 320,
+    affect_learning: bool = False,
+) -> dict:
+    return _graph_agent.build_payload(
+        question, sol_data, width, height, affect_learning=affect_learning
+    )
 
 
 def _render_matplotlib_graph_base64(payload: dict) -> Optional[str]:
@@ -18211,10 +18246,18 @@ def solve():
     else:
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
 
-    graph_payload = _build_graph_automaton_payload(question, sol_data)
-    graph_image = _render_matplotlib_graph_base64(graph_payload)
-    if isinstance(graph_payload, dict):
-        graph_payload["image_data"] = graph_image
+    graph_payload = {}
+    graph_image = None
+    graph_warnings = []
+    try:
+        graph_payload = _build_graph_automaton_payload(
+            question, sol_data, affect_learning=False
+        )
+        graph_image = _render_matplotlib_graph_base64(graph_payload)
+        if isinstance(graph_payload, dict):
+            graph_payload["image_data"] = graph_image
+    except Exception as e:
+        graph_warnings.append(f"graph_isolation_error: {str(e)[:120]}")
 
     return jsonify(
         {
@@ -18250,6 +18293,7 @@ def solve():
             "formula": str(sol_data.get("formula", "")),
             "graph_data": graph_payload,
             "graph_image": graph_image,
+            "graph_warnings": graph_warnings,
             "graph_score": (
                 graph_payload.get("quality", {}).get("score")
                 if isinstance(graph_payload, dict)
