@@ -33,6 +33,7 @@ from flask import Flask, request, jsonify, make_response, send_file
 import requests, json, math, re, random, time, itertools, os, io, subprocess, tempfile, datetime
 from collections import defaultdict, deque
 import pickle
+import copy
 from dataclasses import dataclass
 from typing import Optional
 from decimal import Decimal, getcontext, InvalidOperation
