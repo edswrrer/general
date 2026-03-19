@@ -1,0 +1,438 @@
+[
+  {
+    "id": "gt_01",
+    "cat": "Oyun Kuramı",
+    "q": "Dört aktör: Avrupa (Always C), İran (Always D), İsrail (Grim Trigger), Türkiye (Pavlov). Ödeme: (C,C)→+3, (D,C)→+5/0, (D,D)→+1. 3 tur sonunda: A) Grim Trigger hangi aktöre yönelir? B) En yüksek ve en düşük toplam puanlı aktör kim?"
+  },
+  {
+    "id": "gt_02",
+    "cat": "Oyun Kuramı",
+    "q": "İki oyuncu Prisoner's Dilemma: Oyuncu1 (Tit-for-Tat), Oyuncu2 (Always D). T=5, R=3, P=1, S=0. 5 tur sonunda toplam puanlar nedir? Nash dengesi nedir?"
+  },
+  {
+    "id": "gt_03",
+    "cat": "Oyun Kuramı",
+    "q": "3 oyunculu tekrarlanan oyun: Ali (Grim Trigger), Banu (Pavlov), Can (Always C). T=5 R=3 P=1 S=0. 10 tur simüle et, her turun puan tablosunu ve final sıralamayı göster."
+  },
+  {
+    "id": "gt_04",
+    "cat": "Oyun Kuramı",
+    "q": "Oyun Kuramı: Aşağıdaki 3x3 ödeme matrisinde Nash dengelerini bul ve dominant stratejileri belirle:\nOyuncu1\\Oyuncu2 | L     | M     | R\n  Top             | (3,3) | (0,5) | (2,2)\n  Middle          | (5,0) | (1,1) | (0,3)\n  Bottom          | (2,2) | (3,0) | (1,1)"
+  },
+  {
+    "id": "gt_05",
+    "cat": "Oyun Kuramı",
+    "q": "5 oyunculu enerji krizi senaryosu: A(Always C), B(Always D), C(Grim Trigger), D(Pavlov), E(Tit-for-Tat). T=5 R=3 P=1 S=0. 100 tur sonunda steady-state analizi yap. 95-105. turlar için N±10 pencere göster."
+  },
+  {
+    "id": "gt_06",
+    "cat": "Oyun Kuramı",
+    "q": "Shapley değeri hesapla: 3 oyunculu koalisyon oyunu. v({1})=0, v({2})=0, v({3})=0, v({1,2})=60, v({1,3})=50, v({2,3})=40, v({1,2,3})=120. Her oyuncunun adil payı nedir?"
+  },
+  {
+    "id": "gt_07",
+    "cat": "Oyun Kuramı",
+    "q": "Evrimsel Oyun Kuramı: Şahin-Güvercin oyunu. V=6 (kaynak değeri), C=10 (savaş maliyeti). ESS stratejilerini bul, replicator dynamics ile popülasyon dengesini hesapla."
+  },
+  {
+    "id": "gt_08",
+    "cat": "Oyun Kuramı",
+    "q": "Folk Theorem: 2 oyunculu Prisoner's Dilemma, R=3 P=1. Grim Trigger ile işbirliği sürdürmek için minimum discount factor δ nedir? İspat adımlarını göster."
+  },
+  {
+    "id": 1,
+    "cat": "🎲 Temel Olasılık",
+    "q": "Bir standart zar iki kez atılıyor. Her iki atışta da çift sayı gelme olasılığı nedir? Örneklem uzayını da göster."
+  },
+  {
+    "id": 2,
+    "cat": "👥 Kombinasyon",
+    "q": "12 kişilik bir sınıftan 4 kişilik bir proje grubu kaç farklı şekilde oluşturulabilir?"
+  },
+  {
+    "id": 3,
+    "cat": "🔢 Permütasyon",
+    "q": "MATEMATIK kelimesinin harfleri kaç farklı şekilde sıralanabilir? Tekrar eden harfleri göz önünde bulundur."
+  },
+  {
+    "id": 4,
+    "cat": "🏥 Bayes Teoremi",
+    "q": "Bir hastalığın görülme sıklığı %1. Test %95 doğrulukla pozitif, %3 yanlış pozitif veriyor. Test pozitif çıkınca gerçekten hasta olma olasılığı nedir?"
+  },
+  {
+    "id": 5,
+    "cat": "📊 Binom Dağılımı",
+    "q": "Adil bir madeni para 8 kez atılıyor. Tam olarak 5 tura gelme olasılığını Binom dağılımı ile hesapla."
+  },
+  {
+    "id": 6,
+    "cat": "⚡ Poisson Dağılımı",
+    "q": "Bir çağrı merkezine saatte ortalama 4 çağrı geliyor. Bir saatte tam olarak 6 çağrı gelme olasılığı nedir?"
+  },
+  {
+    "id": 7,
+    "cat": "🔔 Normal Dağılım",
+    "q": "Sınav notları ortalaması 70, standart sapması 10 olan normal dağılım gösteriyor. Bir öğrencinin 80-90 arasında not alma olasılığı nedir?"
+  },
+  {
+    "id": 8,
+    "cat": "🃏 Koşullu Olasılık",
+    "q": "52 kartlık desteden bir kart çekiliyor. Kartın kupa olduğu bilindiğinde as olma olasılığı nedir?"
+  },
+  {
+    "id": 9,
+    "cat": "🌐 Toplam Olasılık",
+    "q": "Fabrikada 3 makine var: A %50, B %30, C %20 üretiyor. Hata oranları sırasıyla %2, %3, %5. Rastgele seçilen bir ürünün hatalı olma olasılığı?"
+  },
+  {
+    "id": 10,
+    "cat": "🐦 Güvercin Yuvası",
+    "q": "366 kişilik bir toplantıda en az iki kişinin aynı doğum gününe sahip olduğunu güvercin yuvası ilkesiyle kanıtla."
+  },
+  {
+    "id": 11,
+    "cat": "∪ İçerme-Dışarma",
+    "q": "1'den 100'e kadar sayılar içinde 2 veya 3 veya 5'e bölünebilen sayıların sayısını dahil-hariç prensibiyle bul."
+  },
+  {
+    "id": 12,
+    "cat": "△ Pascal Üçgeni",
+    "q": "(x+y)^6 açılımını Pascal üçgeni kullanarak yap ve tüm katsayıları göster."
+  },
+  {
+    "id": 13,
+    "cat": "🔔 Bell Sayıları",
+    "q": "4 elemanlı bir kümenin kaç farklı bölümlemesi (partition) vardır? Bell sayısını hesapla ve tüm bölümleri listele."
+  },
+  {
+    "id": 14,
+    "cat": "🔄 Markov Zinciri",
+    "q": "Hava durumu: Güneşli gün %70 güneşli, %30 yağmurlu kalıyor. Yağmurlu gün %40 güneşli, %60 yağmurlu kalıyor. 3 gün sonra durumu bul."
+  },
+  {
+    "id": 15,
+    "cat": "📡 Shannon Entropisi",
+    "q": "4 sembollü bir kaynakta P(A)=0.5, P(B)=0.25, P(C)=0.125, P(D)=0.125. Shannon entropisini hesapla ve yorumla."
+  },
+  {
+    "id": 16,
+    "cat": "📐 Geometrik Dağılım",
+    "q": "Her denemede başarı olasılığı 0.3 olan bir deneyde. İlk başarıya kadar tam olarak 4 deneme yapılma olasılığı nedir?"
+  },
+  {
+    "id": 17,
+    "cat": "🎯 Hipergeometrik",
+    "q": "40 top içinden 15'i kırmızı 25'i mavi. Rastgele 6 top çekildiğinde tam 3 kırmızı çekme olasılığı nedir?"
+  },
+  {
+    "id": 18,
+    "cat": "⭕ Dairesel Permütasyon",
+    "q": "8 kişi yuvarlak bir masaya kaç farklı şekilde oturabilir? Rotasyon eşdeğer sayılıyor."
+  },
+  {
+    "id": 19,
+    "cat": "🔁 Tekrarlı Permütasyon",
+    "q": "5 kırmızı, 3 mavi, 2 yeşil top sıraya diziliyor. Kaç farklı dizilim mümkündür?"
+  },
+  {
+    "id": 20,
+    "cat": "📦 Multinomial",
+    "q": "15 nesne 3 kutuya (5,4,6 nesne) bölüştürülüyor. Kaç farklı şekilde yapılabilir?"
+  },
+  {
+    "id": 21,
+    "cat": "📈 Merkezi Limit Teoremi",
+    "q": "Ortalama 50, standart sapma 10 olan bir popülasyondan n=100 örneklem alınıyor. Örneklem ortalamasının 48 ile 52 arasında olma olasılığı?"
+  },
+  {
+    "id": 22,
+    "cat": "⚖️ Chebyshev Eşitsizliği",
+    "q": "Ortalama 100, varyans 25 olan bir dağılımda değerin 90 ile 110 dışında kalma olasılığı için Chebyshev sınırını bul."
+  },
+  {
+    "id": 23,
+    "cat": "🎰 Monte Carlo",
+    "q": "Monte Carlo simülasyonu ile π sayısını tahmin etme yöntemini adım adım açıkla ve formüle et."
+  },
+  {
+    "id": 24,
+    "cat": "🃏 Doğum Günü Problemi",
+    "q": "23 kişilik bir grupta en az iki kişinin aynı doğum gününe sahip olma olasılığı %50'yi geçer mi? Hesapla."
+  },
+  {
+    "id": 25,
+    "cat": "🎮 Oyun Teorisi",
+    "q": "İki oyunculu bir oyunda 3 tur oynuyor. Her turda kazanma olasılığı 0.4. İki veya daha fazla tur kazanma olasılığı nedir?"
+  },
+  {
+    "id": 26,
+    "cat": "🎪 Eğlence",
+    "q": "Bir şarkı yarışmasında 8 finalist var. İlk 3'e giren kişilerin ödül alacağı, sıranın önemli olduğu bir durumda kaç farklı sonuç mümkün?"
+  },
+  {
+    "id": 27,
+    "cat": "📚 Hikaye",
+    "q": "Ali çantasında 5 kırmızı, 4 mavi, 3 yeşil kalem taşıyor. Karanlıkta 2 kalem çekiyor. İkisinin de aynı renk olma olasılığı nedir?"
+  },
+  {
+    "id": 28,
+    "cat": "🏆 Spor",
+    "q": "Bir futbol takımı her maçı %60 kazanıyor. 5 maçlık seride en az 3 galibiyet alma olasılığını hesapla."
+  },
+  {
+    "id": 29,
+    "cat": "🔗 Stirling Sayıları",
+    "q": "6 elemanlı kümeyi tam olarak 3 boş olmayan alt kümeye bölmenin kaç yolu var? İkinci tür Stirling sayısını hesapla."
+  },
+  {
+    "id": 30,
+    "cat": "🌊 Üreteç Fonksiyon",
+    "q": "Binom katsayılarının üreteç fonksiyonu (1+x)^n kullanarak C(5,0)+C(5,1)+...+C(5,5) toplamını bul ve açıkla."
+  },
+  {
+    "id": 32,
+    "cat": "Oyun Kuramı",
+    "q": "Senaryo: Doğu Akdeniz ve Orta Doğu Enerji Hattı Krizi\n\nBölgede yeni bir enerji hattı kurulmaktadır. Bu süreçte dört aktör arasında stratejik etkileşimler gerçekleşir. Her aktör iki temel hamleden birini seçebilir: uzlaş ya da ihanet et.\n\nOyuncular ve stratejileri:\nAvrupa(e): her zaman uzlaşır.\n\niran(ir): daima ihanet eder.\n\nisrail (is):\nilk tur daima uzlaşır, ancak sonraki durlarda Bir aktörden ihanet görürse o aktöre karşı sonsuza kadar ihanet eder.\n\nTürkiye (tr) → Pavlov-Fırsatçı: Önceki tur kârlıysa aynı hamleyi tekrar eder ve Önceki tur kârlı değilse hamleyi değiştirir.\n\nÖdeme Matrisi (puan)\n\n(uzlaş, uzlaş) → her iki taraf +3\n\n(ihanet et, uzlaş) → ihanet eden +5, uzlaşan 0\n\n(uzlaş, ihanet et) → uzlaşan 0, ihanet eden +5\n\n(ihanet et, ihanet et) → her iki taraf +1\n\nSorular: ikinci turun sonunda israil’in stratejisi hangi aktöre yönelmiş olur?\n\nÜçüncü turun sonunda toplam puanı en yüksek ve en düşük olan aktör kim olur?",
+    "_user": true
+  },
+  {
+    "id": 33,
+    "cat": "Olasılık",
+    "q": "Oyun Senaryosu:\n\nDört maceracı (A, B, C, D) bataklıklarla dolu bir arazide yolculuk yapıyor. Her turda her oyuncu iki eylemden birini seçebilir:\n\nİlerle\n\nKurtul\n\nOyuncu stratejileri:\n\nA : Her zaman İlerle. Ancak bataklığa saplanırsa, sonraki tur %50 olasılıkla Kurtul yapar.\n\nB : İlk tur rastgele seçim yapar. Sonraki turlarda, bir rakip bataklığa saplanırsa ona saldırır; aksi takdirde önceki hamleyi tekrarlar.\n\nC : Geçen tur kazançlı hamle yaptıysa aynı hamleyi tekrar eder; aksi halde rastgele hamle seçer.\n\nD : İlk tur rastgele seçim yapar. Sonraki turlarda, bataklığa saplanan rakibe saldırır, aksi halde Kurtul yapar.\n\nÖdeme matrisi (ikili karşılaşmalar, bataklık etkisi dahil):\n\n(İlerle, İlerle) → -2, -2\n\n(İlerle, Kurtul) → +3, -1\n\n(Kurtul, İlerle) → -1, +3\n\n(Kurtul, Kurtul) → +1, +1\n\nBataklığa saplanma cezası: -3 puan\n\nBir mekanizatör:\n\nHer turda %20 olasılıkla bir hücre bataklığa dönüşür.\n\nBataklığa saplanan oyuncu, bir sonraki tur İlerle yaparsa -3 ceza alır.\n\nSaldırmak, rakibi bataklığa sürükleme şansı verir (%30).\n\nSorular:\n\nİkinci tur sonunda C, hangi oyuncuya karşı en saldırgan olur?\n\n10 tur sonunda en yüksek ve en düşük puan alan oyuncular kim olur?\n\nBataklığa saplanma olasılığı hangi oyuncu için en yüksek?",
+    "_user": true
+  },
+  {
+    "id": 34,
+    "cat": "Bayesyan",
+    "q": "a= ali ağaçtan indi.\nb = çukuru geçti.\nd= kulübeye girdi\ne = öldü\n\nzamansal-mantıksal-nedensel sıra: a, b ise eğer, \nc d'dir;\nc aksi halde e'dir.\n\nali'nin çukuru geçmeden önce, kulübeye girmeme olasılığının değeri ne? \nolaylar birbirinden bağımsızdır.\ngizli düğümlerde var.",
+    "_user": true
+  },
+  {
+    "id": 36,
+    "cat": "Bayes",
+    "q": "a= gocu sözlüğe girdi.\nb = ellerimbos'a sövdü.\nd= çaylak oldu.\ne = kodese atıldı.\n\na, b ise eğer, \nc d'dir;\nc aksi halde e'dir.\n\ngocu'nun sözlüğe girmeden önce, kodese atılmama olasılığının değeri ne? hesapla.\nher olay, bir diğerine bağımlı.",
+    "_user": true
+  },
+  {
+    "id": 37,
+    "cat": "Bayesyan",
+    "q": "a= gocu sözlüğe girdi.\nb = ellerimbos'a sövdü.\nd= çaylak oldu.\n-d = kodese atıldı.\n\na, b ise eğer, \nc d'dir;\nc aksi halde -d'dir.\n\ngocu'nun sözlüğe girmeden önce, kodese atılmama olasılığının değeri ne? hesapla.\nher olay, bir diğerine bağımlı.",
+    "_user": true
+  },
+  {
+    "id": 38,
+    "cat": "Oyun Kuramı",
+    "q": "Senaryo: Doğu Akdeniz ve Orta Doğu Enerji Hattı Krizi\n\nBölgede yeni bir enerji hattı kurulmaktadır. Bu süreçte dört aktör arasında stratejik etkileşimler gerçekleşir. Her aktör iki temel hamleden birini seçebilir: uzlaş ya da ihanet et.\n\nOyuncular ve stratejileri:\nAvrupa(e): her zaman uzlaşır.\n\niran(ir): daima ihanet eder.\n\nisrail (is):\nilk tur daima uzlaşır, ancak sonraki durlarda Bir aktörden ihanet görürse o aktöre karşı sonsuza kadar ihanet eder.\n\nTürkiye (tr) → Pavlov-Fırsatçı: Önceki tur kârlıysa aynı hamleyi tekrar eder ve Önceki tur kârlı değilse hamleyi değiştirir.\n\nÖdeme Matrisi (puan)\n\n(uzlaş, uzlaş) → +3, +3\n\n(ihanet et, uzlaş) → -3, -1\n\n(uzlaş, ihanet et) → -2, -3\n\n(ihanet et, ihanet et) → -1, -1\n\nSorular: 99.turun sonunda israil’in stratejisi hangi aktöre yönelmiş olur?\n\n100.turun sonunda toplam puanı en yüksek ve en düşük olan aktör kim olur?",
+    "_user": true
+  },
+  {
+    "id": 39,
+    "cat": "Olasılık",
+    "q": "karar ağacı: \na= ali ağaçtan indi.\nb = aç kurt ali'ye saldırdı.\nc =ali kurdu bıçakla öldürdü, öldüremediyse maymun bıçağını çaldı\nd = çukuru geçti.\ne= kulübeye girdi ya da -e = ali öldü\n\nali kurdu öldürmedi, maymun alinin bıçağını çaldı ve çukuru geçmediyse eğer, kulübeye de giremez; ancak diğer olaylar bağımsızdır.\n\nali'nin kurdu öldürmeden önce, kulübeye girmeme olasılığının değeri ne?",
+    "_user": true
+  },
+  {
+    "id": 40,
+    "cat": "Olasılık",
+    "q": "Karar ağacı:\nOlaylar:\na = Ali ağaçtan indi\nb = Aç kurt Ali'ye saldırdı\nc = Ali kurdu bıçakla öldürdü; öldüremediyse maymun bıçağını çaldı\nd = Ali çukuru geçti\ne = Ali kulübeye girdi\n-e = Ali öldü\n\nBağımlılıklar:\n- Ali kurdu öldürmediyse (c=False) ve maymun bıçağı çaldıysa, Ali çukuru geçmediyse (d=False) kulübeye giremez (e=False)\n- Diğer olaylar bağımsızdır\n\nSoru:\nAli kurdu öldürmeden önce, kulübeye girmeme olasılığı nedir?\nYani: P(e=False | c=False)",
+    "_user": true
+  },
+  {
+    "id": 41,
+    "cat": "Monte Carlo",
+    "q": "Olaylar ve Olasılıkları:\n\nOlay    Açıklama                                     Olasılık\na       Ali ağaçtan indi                             1 (kesin)\nb       Aç kurt Ali’ye saldırdı                       0.25\nc       Ali kurdu öldürdü                             c=False: kurdu öldürmediği durum\nd       Ali çukuru geçti                               Eğer c=False ve maymun bıçağı çaldı → %30 geçme ihtimali\ne       Ali kulübeye girdi                             d=False → 0%, d=True ve h=True → 50%, d=True ve h=False → 100%\nf       Ali içerde yiyecek buldu                       e=True → 70%\ng       Ali uyudu                                     f=True → 100%, f=False → 30%\nh       Ali maymunla karşılaştı                        50%\ni       Ali maymunu ikna etti                          h=True → 60%\nj       Ali hazineyi buldu                             i=True ve g=True → 80%, i=False → 0%\n\nBağımlılık Zincirleri:\n\nc=False → maymun bıçağı çaldı → d olasılığı %30\n\nd=False → e olasılığı 0%\nd=True ve h=True → e olasılığı 50%\nd=True ve h=False → e olasılığı 100%\n\ne → f ve g → j\n\nh ve i → j\n\nHesaplama Adımları (Yaklaşık Monte Carlo veya Ağ Analizi):\n\n1. c=False durumunu sabitle.\n2. d için %30 geçme olasılığıyla simüle et.\n3. e olasılıklarını d ve h değerlerine göre belirle.\n4. h ve i olasılıklarını rastgele dağıt.\n5. j olasılıklarını e, g, i durumuna göre hesapla.\n6. Her adım için OR durumunu (e=False OR j=False) al → ortalama olasılığı bul.",
+    "_user": true
+  },
+  {
+    "id": 42,
+    "cat": "Tarih",
+    "q": "Sıfır Toplamlı (Zero-Sum) bir çatışma oyunudur. Osmanlı'nın kazancı, Bizans'ın mutlak kaybıdır.\nfatih sultan mehmet istanbulu nasıl fethetmiş olabilir?\noyun kuramı açısından analiz et.",
+    "_user": true
+  },
+  {
+    "id": 43,
+    "cat": "Mantık",
+    "q": "ali, ahmet'in babasıdır. ahmet ali'nin babasıdır. elif, ali'nin torunudur ve elif'in kardeş'i ahmet'tir. peki ahmet elif'e göre, ali'nin neyi olur?",
+    "_user": true
+  },
+  {
+    "id": 45,
+    "cat": "Mantık",
+    "q": "mantık sorusu:\n\nali, arabasına binip, otoyıkamacıya gidecek. araba-yıkamacı, 100 metre ileride.\nali arabaya binmeden, otoyıkamacıya gidemez.\n\n\nHangisi daha mantıklı?\n\na) otoyıkamacıya yürüyerek mi gitmek? b) yoksa otoyıkamacıya arabayla mı gitmek?",
+    "_user": true
+  },
+  {
+    "id": 46,
+    "cat": "Mantık",
+    "q": "a= ali, arabasına binerse eğer, \nb= otoyıkamacıya gidecek.\nc= ali, arabasına binmediyse eğer otoyıkamacıya gitmeyecek.\n\ngideceği yer sadece 100 metre ileride, yürüme mesafesi kadar ayakın.\n\n\na) otoyıkamacıya yürüyerek mi gitmeli? b) yoksa arabayla mı gitmeli?\n\nnot: hız, zaman, ivme, enerji hesapları önemsizdir.",
+    "_user": true
+  },
+  {
+    "id": 47,
+    "cat": "Sıralı İşlem",
+    "q": "sırasıyla:\n1.turda ali, ayşeye tokat atıyor.\n2.turda ayşe veli'ye tokat atıyor,\n3.turda veli, burcuya tokat atıyor.\nkural: burcu, tokat yediğinde daima ali'ye tokat atıyor.\nzinciri 124.tura kadar devam ettir.\n\n\n\nsoru: 124.turda kim tokat yemiştir, hesapla.",
+    "_user": true
+  },
+  {
+    "id": 48,
+    "cat": "Mantık Sayım",
+    "q": "masanın üzerinde 2 kitap, 3 monitör, 5 kalem, 3 silgi var.\n1.sefer gözlerini kapat,\nve yeniden gözlerini aç.\n\neğer gözlerini açtığında mnasanın üzerinde 4 monitör görürsen, masadan -1 silgi kaybolur.\neğer gözlerini açtığında 2 kitap ve 4 monitör görürsen, kalem sayısı +5 artar.\n\nkalem sayısının 30'a ulaştığı durumda, masada kaç silgi kalmıştır?\n\nminimum silgi miktarı negatif olabilir.",
+    "_user": true
+  },
+  {
+    "id": 49,
+    "cat": "Fizik Spekülasyonu",
+    "q": "2000 kg kütlesinde ve 200 HP motor gücüne sahip bir otomobil, kuru asfalt    \n   yolda 100 km/sa sabit hızla gitmektedir. Dünyanın kütleçekim ivmesi (g)      \n   aniden 1000 katına çıkarsa (g = 9800 m/s²):                                  \n                                                                                \n1. Otomobilin yeni AĞIRLIĞI (Newton cinsinden) ne olur?                      \n2. Lastiklerin asfalta uyguladığı BASINÇ kaç Pascal olur ve asfalt çöker mi? \n3. Sürtünme katsayısı μ=0.7 ise, hızı korumak için gereken sürtünme kuvveti motorun sağlayabileceği itkiyi geçer mi? (Otomobil durur mu?)\n\n\nSürtünme Katsayısı (μ): 0.7 (Kuru asfalt üzerinde kauçuk lastik).\n\nLastik Temas Alanı: 0.08 m2 (Dört lastiğin toplam yerle temas yüzeyi).\n\nAsfaltın Dayanım Eşiği (Basınç): 10 MPa (10 MegaPascal - Bu değerden sonra asfalt çöker).",
+    "_user": true
+  },
+  {
+    "id": 50,
+    "cat": "Fizik Spekülasyonu",
+    "q": "Dünyanın 5 saniyede kendi üzerine çökmesi ve tekillik yaratması için,\ntoplam ağırlığı kaç katına çıkmalıdır?\n\n\n\nDÜNYA FİZİKSEL VERİLERİ (SİSTEM ÖZETİ)\n\nPARAMETRE: Toplam Kütle (M)\nDEĞER: 5.9722 x 10^24 kg\nNOT: Yaklaşık 6 septilyon kilogram.\n\nPARAMETRE: Ortalama Yoğunluk (rho)\nDEĞER: 5515 kg/m^3\nNOT: Güneş sistemindeki en yüksek yoğunluklu gezegen.\n\nPARAMETRE: Standart Kütleçekim İvmesi (g)\nDEĞER: 9.80665 m/s^2\nNOT: Deniz seviyesi referans değeridir.\n\nPARAMETRE: Ortalama Yarıçap (R)\nDEĞER: 6371 km\nNOT: Ekvator ve kutuplar arası fark ihmal edilmiştir.\n\nPARAMETRE: Hacim (V)\nDEĞER: 1.08321 x 10^12 km^3\n\n\n\n\n\n\n◆ ASCIIMATİK · Singularity & Collapse v2.0 ◆\nTip: Astrofizik  Layout: DİNAMİK_TEKİLLİK\n\nVERİLER:\nM (Dünya) = 5.9722 x 10^24 kg      |  G (Kütleçekim Sabiti) = 6.674 x 10^-11\nR (Dünya) = 6.371 x 10^6 m         |  c (Işık Hızı) = 2.997 x 10^8 m/s\nt (Hedef Süre) = 5 saniye\n\n--------------------------------------------------------------------------------\n\nANALİZ ADIMLARI\n\n[01] ► Adım 1: Tekillik Sınırı (Schwarzschild Yarıçapı)\nDünyanın mevcut boyutunda (R) bir \"olay ufku\" oluşturması için gereken kütle \n(M_tekillik) hesaplanır:\n▸ M_tekillik = (R * c^2) / (2 * G)\n✓ M_tekillik ≈ 4.29 x 10^33 kg (Güneş'in 2150 katı kütle)\n✓ Oran = 718.500.000 kat (Bu kütleye ulaşırsa anında kara delik olur)\n\n[02] ► Adım 2: 5 Saniyede Çöküş Dinamiği (Free-Fall Time)\nKütlenin kendi üzerine 5 saniyede çöküp merkeze ulaşması için gereken yoğunluk \n(rho') hesaplanır:\n▸ t_ff = sqrt(3*pi / (32 * G * rho'))\n▸ rho' = (3 * pi) / (32 * G * t^2)\n✓ rho' ≈ 1.76 x 10^8 kg/m^3 (Beyaz Cüce yıldız yoğunluğu seviyesi)\n\n[03] ► Adım 3: Gereken Toplam Kütle (M_yeni)\nGereken yoğunluğu mevcut dünya hacminde sağlamak için gereken kütle:\n▸ M_yeni = rho' * V_dünya\n✓ M_yeni ≈ 1.91 x 10^29 kg\n\n--------------------------------------------------------------------------------\n\n✦ SONUÇ VE CEVAP ✦\n\nORAN     ► Dünya'nın kütlesi yaklaşık 32.000 KATINA çıkmalıdır.\nSAYISAL  ► M_yeni / M_dünya = 31.981\nDURUM    ► Jüpiter'in 100 katı kütle / Beyaz Cüce yoğunluğu\n\nAçıklama:\nDünya'nın kütlesi 32 bin katına çıktığı saniyede, atomlar arası boşluklar \nkütleçekimine dayanamaz. Gezegen 5 saniyelik bir serbest düşüşle merkeze \ndoğru çöker. Bu sürecin sonunda dünya, yaklaşık 283 metrelik bir \"olay ufku\" \nolan (Schwarzschild yarıçapı) gerçek bir kara deliğe (tekilliğe) dönüşür.",
+    "_user": true
+  },
+  {
+    "id": 51,
+    "cat": "Diferansiyel Denklemler",
+    "q": "SORU:\nTürkiye ve Yunanistan'ın mevcut nüfusları sırasıyla 86 milyon ve 10.3 milyondur. \nNüfus değişimi sabit büyüme oranı yerine dinamik lojistik nüfus modeli ile tanımlanmaktadır. \nNüfus değişimi aşağıdaki diferansiyel denklem ile ifade edilir:\n\ndN/dt = rN(1 − N/K)\n\nBurada:\nN(t) → t yıl sonraki nüfus\nr → doğal büyüme oranı\nK → çevresel taşıma kapasitesi\n\nVarsayımlar:\nTürkiye için: r = 0.012, K = 150 milyon\nYunanistan için: r = -0.002, K = 12 milyon\n\nSorular:\n1. Her iki ülkenin nüfusunu 100 yıl sonrası için hesaplayınız.\n2. Nüfus eğrilerinin uzun vadede hangi değere yakınsadığını bulunuz.\n3. Türkiye / Yunanistan nüfus oranının zamanla nasıl değiştiğini yorumlayınız.\n\nEK ANALİZ (KAOTİK VE STOKASTİK YAKLAŞIM):\nDaha önce konuştuğumuz Lojistik Harita (Logistic Map) veya Stokastik Diferansiyel Denklemler \nüzerinden bir analiz yapmak istersen, bu sorudaki parametrelere bir de \"volatilite\" (σ) \nveya \"kaos katsayısı\" (r > 3.57) ekleyerek senaryoyu tamamen öngörülemez bir hale getirebiliriz.",
+    "_user": true
+  },
+  {
+    "id": 52,
+    "cat": "Nüfus Değişimi",
+    "q": "SORU:\n\nTürkiye ve Yunanistan'ın mevcut nüfusları sırasıyla 86 milyon ve 10.3 milyondur.\n\nNüfus değişimi sabit büyüme oranı yerine dinamik lojistik nüfus modeli ile tanımlanmaktadır.\n\nNüfus değişimi aşağıdaki diferansiyel denklem ile ifade edilir:\n\ndN/dt = rN(1 − N/K)\n\nBurada:\n\nN(t)  → t yıl sonraki nüfus \nr     → doğal büyüme oranı \nK     → çevresel taşıma kapasitesi \n\nVarsayımlar: \n\nTürkiye için \nr = 0,012 \nK = 150 milyon \n\nYunanistan için \nr = −0.002 \nK = 12 milyon \n\nSorular: \n\n1. Her iki ülkenin nüfusunu 100 yıl sonrası için hesaplayınız.\n2. Nüfus eğrilerinin uzun vadede hangi değere yakınsadığını bulunuz.\n3. Türkiye / Yunanistan nüfus oranının zamanla nasıl değiştiğini yorumlayınız.",
+    "_user": true
+  },
+  {
+    "id": 53,
+    "cat": "Astrofizik",
+    "q": "◆ ASTROPHYSICAL COLLAPSE & ORBITAL DYNAMICS FORMULATION ◆\n\n1. SERBEST DÜŞÜŞ VE KÜTLE İLİŞKİSİ (FREE-FALL TIME):\nBir gök cisminin kendi üzerine çökme süresi (t_ff), yoğunluk (ρ) ile ters orantılıdır:\nt_ff = sqrt(3 * π / (32 * G * ρ))\n\nBurada ρ = M / (4/3 * π * R³) olduğundan, hedef süre t=5 saniye için gereken kütle (M_collapse):\nM_collapse = (π² * R³) / (8 * G * t²)\n\n2. TEKİLLİK EŞİĞİ (SCHWARZSCHILD RADIUS):\nÇöküşün bir kara delik (tekillik) ile sonuçlanması için kütlenin ulaşması gereken olay ufku yarıçapı:\nR_s = 2 * G * M_collapse / c²\n\n3. AY'IN YÖRÜNGE DİNAMİĞİ VE SON HIZI (ORBITAL VELOCITY):\nDünya'nın kütlesi aniden M_collapse değerine çıktığında, Ay'ın (r_orbit uzaklığındaki) \nyörünge hızı artık dairesel yörüngeyi koruyamaz. Ay, merkeze doğru radyal bir ivme kazanır. \nSistemin toplam enerjisinin korunumu yasasına göre, Ay'ın çarpma veya son hızı (V_final):\n\nV_final = sqrt(2 * G * M_collapse * (1/R - 1/r_orbit))\n\nBurada:\nR = Dünya'nın mevcut yarıçapı (6.371 x 10^6 m)\nr_orbit = Ay'ın yörünge yarıçapı (3.844 x 10^8 m)\nG = 6.674 x 10^-11 m³/kg.s²\n\n4. KÜTLE ARTIŞ ORANI (SCALING FACTOR):\nKatsayı (k) = M_collapse / M_earth",
+    "_user": true
+  },
+  {
+    "id": 54,
+    "cat": "Grid",
+    "q": "2d Izgara sisteminde 5x5=25 tane kare bulunmaktadır; karelerin her biri x ve y bilgisini taşır.\n\nSİSTEM PARAMETRELERİ:\n--------------------------------------------------------------------------------\n- IZGARA (Grid)    : 5 x 5 Matris (i, j ∈ {1, 2, 3, 4, 5})\n- BAŞLANGIÇ (P_0)  : (3, 3) - Tam Merkez\n- ADIM SAYISI (N)  : 6\n- SINIR KOŞULU     : Sabit Sınır (Eğer hamle matris dışına çıkarsa, parçacık \n                     mevcut karesinde kalır).\n\nHAREKET OLASILIKLARI (Stochastic Transition Matrix):\n--------------------------------------------------------------------------------\nHer adımda parçacık şu 4 yönden birine belirtilen olasılıklarla hareket eder:\n1. KUZEY (i, j+1)  : P = 0.30\n2. GÜNEY (i, j-1)  : P = 0.30\n3. DOĞU  (i+1, j)  : P = 0.20\n4. BATI  (i-1, j)  : P = 0.20\n\nSORU:\n--------------------------------------------------------------------------------\nMonte Carlo simülasyonu veya durum geçiş matrisi (State Transition) yöntemini \nkullanarak; 6. adım sonunda (N=6) parçacığın ızgaranın herhangi bir KÖŞE \nnoktasında [ (1,1), (1,5), (5,1), (5,5) ] bulunma olasılığı nedir?\n\nHEDEF:\n1. Tüm olası yolların simülasyonu üzerinden \"Köşede Durma\" olasılığını hesapla.\n2. Sistemin beklenen pozisyonunu (E[X], E[Y]) belirle.\n--------------------------------------------------------------------------------",
+    "_user": true
+  },
+  {
+    "id": 55,
+    "cat": "Kurgusal Fizik",
+    "q": "PROBLEM: HİPER-KÜTLEÇEKİM ALTINDA JET MOTORLU LOJİSTİK ANALİZİ\n\nPARAMETRELER:\n- Toplam Sistem Kütlesi (Araç + F35 Motoru + Yakıt): 3700 kg\n- Motor İtme Kuvveti (F_itki - Afterburner): 191.000 N\n- Motor Yakıt Tüketim Oranı (Maksimum Güçte): 11.5 kg/saniye\n- Yerçekimi İvmesi (g_hiper): 9800 m/s²\n- Sürtünme Katsayısı (μ): 0.7 (Kuru asfalt/kauçuk)\n- Lastik Temas Alanı (4 Lastik Toplam): 0.08 m²\n- Asfalt Dayanım Eşiği (Basınç): 10 MPa\n- Güzergah Mesafesi (Ankara - İstanbul): 450 km\n\nFORMÜLLER:\n- Ağırlık: W = m * g\n- Yüzey Basıncı: P = F_normal / A\n- Statik/Kinetik Sürtünme Kuvveti: F_s = μ * W\n- Net Kuvvet: F_net = F_itki - F_s\n- Hareket Yasası: F_net = m * a\n- Yol-Zaman İlişkisi: x = 1/2 * a * t² (veya v = sabit ise t = x/v)\n- Toplam Yakıt Tüketimi: m_yakıt = Tüketim_oranı * t\n\nSORU:\n1. Mevcut hiper-kütleçekim altında sistemin toplam ağırlığını (W) ve asfalt üzerine binen basıncı (P) hesaplayınız. Asfaltın yapısal bütünlüğünü koruyup koruyamayacağını belirleyiniz.\n2. F35 motorunun sağladığı maksimum itki kuvveti ile zemin sürtünme kuvvetini kıyaslayınız. Aracın Ankara'dan hareket edip edemeyeceğini fiziksel olarak kanıtlayınız.\n3. Teorik olarak (zemin çökmediği ve sürtünmenin aşıldığı varsayıldığında), aracın Ankara'dan İstanbul'a ulaşma süresini saniye ve dakika cinsinden hesaplayınız.\n4. Tüm yolculuk boyunca motorun tam kapasite afterburner kullandığı varsayılırsa, İstanbul'a varıldığında tüketilen toplam yakıt miktarını (kg) belirleyiniz.",
+    "_user": true
+  },
+  {
+    "id": 56,
+    "cat": "Fizik",
+    "q": "PROBLEM: HİPER-KÜTLEÇEKİM ALTINDA JET MOTORLU LOJİSTİK ANALİZİ\n\nPARAMETRELER:\n- Toplam Sistem Kütlesi (Araç + F35 Motoru + Yakıt): 3700 kg\n- Motor İtme Kuvveti (F_itki - Afterburner): 191.000 N\n- Motor Yakıt Tüketim Oranı (Maksimum Güçte): 11.5 kg/saniye\n- Yerçekimi İvmesi (g_hiper): 9800 m/s²\n- Sürtünme Katsayısı (μ): 0.7 (Kuru asfalt/kauçuk)\n- Lastik Temas Alanı (4 Lastik Toplam): 0.08 m²\n- Asfalt Dayanım Eşiği (Basınç): 10 MPa\n- Güzergah Mesafesi (Ankara - İstanbul): 450 km\n\nFORMÜLLER:\n- Ağırlık: W = m * g\n- Yüzey Basıncı: P = F_normal / A\n- Statik/Kinetik Sürtünme Kuvveti: F_s = μ * W\n- Net Kuvvet: F_net = F_itki - F_s\n- Hareket Yasası: F_net = m * a\n- Yol-Zaman İlişkisi: x = 1/2 * a * t² (veya v = sabit ise t = x/v)\n- Toplam Yakıt Tüketimi: m_yakıt = Tüketim_oranı * t\nSORU: Ankara-İstanbul Hattındaki \"Sonsuz\" Yakıt Muamması\n\nBir yapay zeka tarafından yönetilen üç farklı otonom taşıma birimi (A, B ve C), hiper-kütleçekim ortamında Ankara'dan İstanbul'a veri taşımakla görevlendirilmiştir. Ancak sistemde şu önermeler geçerlidir:\n📜 Önermeler Seti:\n\n    Hareket Koşulu: Bir birimin hareket edebilmesi için ya motor itkisinin sürtünmeden büyük olması ya da bir başka birim tarafından itiliyor olması gerekir.\n\n    Yakıt Bağımlılığı: Yakıt tüketen her birim, deposu boşaldığı an durur ve sürtünme katsayısı (μ) aniden iki katına çıkar.\n\n    Birim A: F-35 motoruna sahiptir. İtki kuvveti, kendi sürtünme kuvvetinden küçüktür. Ancak B birimi ile birleşirse toplam itki, toplam sürtünmeyi geçer.\n\n    Birim B: İtki kuvveti yoktur (motorsuzdur). Sadece A birimi onu arkadan ittiğinde hareket edebilir.\n\n    Birim C: Birim A'dan daha güçlü bir motora sahiptir. Tek başına hareket edebilir ancak yakıt tüketimi o kadar yüksektir ki yolun tam ortasında (225. km) yakıtı biter.\n\n    Transfer Kuralı: Hareket halindeki bir birim, yanındaki birime yakıt transferi yapamaz; ancak duran bir birimden yakıt çekilebilir (bu işlem 10 dakika sürer).\n\n    Yol Durumu: Eğer herhangi bir birimin yakıtı biter ve olduğu yerde kalırsa, yolu tıkar. Arkadan gelen hiçbir birim onun üzerinden geçemez veya onu itemez.\n\n\nEğer bu üç birim aynı anda Ankara'dan yola çıkarsa (C en önde, A ve B birbirine bağlı şekilde arkada olacak şekilde):\n\nİstanbul'a en az bir veri paketinin ulaşması mümkün müdür? Eğer mümkünse hangi stratejiyle, değilse hangi önerme buna engel olmaktadır?",
+    "_user": true
+  },
+  {
+    "id": 57,
+    "cat": "Çarpışma ve Enerji Değişimi",
+    "q": "HİPER-ENERJETİK ÇARPIŞMA ANALİZİ: MAN TGS vs. LOCKHEED MARTIN F-35 (REVİZE EDİLMİŞ VERSİYON)\n\nPROBLEM TANIMI:\nAnkara-Eskişehir otoyolunun geniş bir düzlüğünde, maksimum hızda seyreden bir MAN TGS 41.500 (8x4) damperli kamyon ile, alçak irtifada \"supercruise\" modunda ilerleyen bir Lockheed Martin F-35 Lightning II uçağının tam kafa kafaya (0 derece açıyla, zıt yönlerde) çarpıştığı varsayılmaktadır. Analiz sırasında birim tutarlılığı (SI), hızların vektörel doğası ve ekstrem ivmelenme değerlerinin fiziksel gerçekliği öncelikli odak noktasıdır.\n\nSİSTEM PARAMETRELERİ:\n\n    MAN TGS 41.500:\n\n    Yüklü Toplam Kütle (m_k): 40.000 kg\n\n    Seyir Hızı (v_k): 110 km/h\n\n    Ön Profil Alanı (A_k): 9.2 m²\n\n    Malzeme: S355 Çelik (Akma: 355 MPa)\n\n    F-35 LIGHTNING II:\n\n    Operasyonel Kütle (m_u): 22.000 kg\n\n    Seyir Hızı (v_u): 1.6 Mach (Deniz seviyesi şartlarında)\n\n    Kalan Jet Yakıtı (JP-8): 6.000 kg (Enerji Yoğunluğu: 43 MJ/kg)\n\n    ÇEVRESEL VE DİNAMİK KOŞULLAR:\n\n    Çarpışma Karakteri: Tam olmayan esnek olmayan (partially inelastic)\n\n    Etkileşim Süresi (delta_t): 0.005 saniye\n\n    Asfalt Sürtünme Katsayısı (mu): 0.7\n\nANALİZ SORULARI:\n\nSoru 1 (Vektörel Momentum ve Kinematik):\nSistemin çarpışma anındaki toplam momentumunu, araçların birbirine zıt yönlerde hareket ettiğini dikkate alarak SI birim sisteminde hesaplayınız. Çarpışmadan hemen sonra (t+dt) birleşik enkazın ortak hız vektörünü ve hareket yönünü belirleyiniz.\n\nSoru 2 (Enerji ve Termodinamik İnfilak):\nÇarpışma anında sisteme dahil olan toplam kinetik enerjiyi hesaplayınız. Bu enerjinin %25'inin anlık olarak ısıya dönüştüğü ve mevcut JP-8 yakıtını tam verimle infilak ettirdiği varsayımıyla; toplam açığa çıkan enerjiyi (Kinetik Kayıp + Kimyasal Patlama) hesaplayarak TNT eşdeğeri cinsinden ifade ediniz.\n\nSoru 3 (Dinamik Yüklenme ve Yapısal Limitler):\nKamyonun momentum değişimi üzerinden, çarpışma süresi (0.005s) boyunca üzerine etki eden ortalama darbe kuvvetini bulunuz. Bu kuvvetin sebep olduğu negatif ivmeyi (G-kuvveti cinsinden) hesaplayarak, yapının bütünlüğünü koruyup koruyamayacağını mekanik açıdan yorumlayınız.\n\nSoru 4 (Balistik Yayılım ve Duruş Analizi):\nÇarpışma sonrası oluşan yüksek hızlı enkazın, sadece asfalt sürtünmesi etkisinde kalarak otoyol üzerinde tamamen durana kadar katedeceği teorik mesafeyi (stopping distance) hesaplayınız.\n\nDİKKAT: Hesaplamalarda birim dönüşümlerinin doğruluğu ve hızların yön farkı (vektörel toplam) analizin geçerliliği için kritiktir.",
+    "_user": true
+  },
+  {
+    "id": 59,
+    "cat": "Kurgusal Fİzik",
+    "q": "HİPER-FİZİK ANALİZİ: DÜNYA MERKEZİNDEN GEÇEN GRAVİTE TÜNELİ (İSTANBUL ANTİPODU)\n\nPROBLEM TANIMI:\n80 kg kütleli bir kişi, İstanbul'dan serbest bırakılarak Dünya'nın merkezinden geçen, \nsürtünmesiz ve vakumlanmış bir tünelde harekete başlar. Analiz sırasında Dünya'nın \nhomojen bir yoğunluğa sahip olduğu varsayılmalıdır.\n\nSİSTEM PARAMETRELERİ:\n- Kişi Kütlesi (m): 80 kg\n- Dünya Yarıçapı (R): 6371 km\n- Yüzey Yerçekimi İvmesi (g): 9.81 m/s²\n- Tünel Şartları: Sürtünmesiz, hava direnci yok (vakum).\n\nANALİZ SORULARI:\n\nSoru 3 (Basit Harmonik Hareket ve Zaman):\nHareketin periyodunu belirleyen T = 2π * sqrt(R/g) bağıntısını kullanarak; kişinin \nİstanbul'dan bırakıldıktan sonra Dünya'nın tam zıt (antipod) çıkış noktasına ulaşması \niçin gereken toplam süreyi (dakika) hesaplayınız.\n\nSoru 4 (Dinamik Denge ve Salınım):\nKişi tam zıt çıkış noktasına vardığı anda hız vektörünün büyüklüğünü belirleyiniz. \nDışarıdan bir müdahale olmadığı takdirde hareketin periyodik doğasını (salınım) \nenerji korunumu çerçevesinde yorumlayınız.\n\nDİKKAT: \nAnaliz sırasında ivmenin merkeze yaklaştıkça doğrusal olarak azaldığı (Basit Harmonik \nHareket) ve süre hesabında periyodun (T) hangi oranının kullanılacağı kritik öneme sahiptir.",
+    "_user": true
+  },
+  {
+    "id": 60,
+    "cat": "Kuantum Fiziği",
+    "q": "PROJE: LUX-AETERNA - TEKNİK ANALİZ RAPORU\nKategori: Spekülatif Kuantum Dinamiği\nKonu: Fotonik Gemi Belirsizlik Eşiği\n\n[GİRDİ VERİLERİ]\nKonum Belirsizliği (dx): 1.0 x 10^-15 m (Proton Çapı)\nBaşlangıç Enerjisi (E): 2.5 eV (Yeşil Işık Spektrumu)\nPlanck Sabiti (hbar): 1.054 x 10^-34 J.s\nIşık Hızı (c): 3.0 x 10^8 m/s\n\n[HESAPLAMA SÜRECİ]\n\n1. MOMENTUM BELİRSİZLİĞİ (dp)\nDenklem: dp >= hbar / (2 * dx)\nİşlem: (1.054e-34) / (2 * 1.0e-15)\nSonuç: dp ≈ 5.27 x 10^-20 kg.m/s\n\n2. ENERJİ DALGALANMASI (dE)\nDenklem: dE = dp * c\nİşlem: (5.27e-20) * (3.0e8)\nSonuç: dE ≈ 1.58 x 10^-11 Joule\n\n3. SPEKTRAL KAYMA (eV Cinsinden)\nDönüşüm: 1.58e-11 J / 1.602e-19 (J/eV)\nSonuç: dE ≈ 98.750.000 eV (~99 MeV)\n\n[FİZİKSEL ÇIKTI VE RİSK ANALİZİ]\n\nDURUM: Başlangıçtaki huzurlu yeşil ışık (2.5 eV), tünel \ngirişinde dx kısıtlamasına girdiği an 99 MeV'lik bir \nbelirsizlik bulutuna dönüşür.\n\nETKİ: Sert Gama Işınımı.\nSONUÇ: Gemi tünelden geçerken bir \"veri taşıyıcısı\" \nolmaktan çıkar; 100 milyon kat daha enerjik bir \nradyasyon patlamasına dönüşür. \n\nKRİTİK HATA: Konumdaki kesinlik, geminin frekansını (yani \nkimliğini ve verisini) tamamen yok etmiştir. Bilinç, \ngama ışını kaosu içinde atomize olur.",
+    "_user": true
+  },
+  {
+    "id": 61,
+    "cat": "Astrofizik Kuantum",
+    "q": "PROJE: LUX-AETERNA - ANALİZ RAPORU [SİSTEM REVİZYONU: 00-4]\nKategori: Kuantum Mekaniksel Veri Silinmesi ve Tekillik Navigasyonu\nKonu: Yüksek Enerjili Belirsizlik Eşiği ve Bilgi Entropisi\n\n[LOG SİSTEMİ: AKTİF]\n[DURUM: KRİTİK ENERJİ SEVİYESİ]\n\n[GİRDİ VERİLERİ]\n- Hedef Geçit: Einstein-Rosen Köprüsü (Solucan Deliği Boğazı)\n- Geometrik Kısıt ($\\Delta x$): 1.0 x 10^-15 m (Hizalama Hassasiyeti)\n- Taşıyıcı Enerji (E): 2.5 eV (Başlangıç Fotonik Veri Akışı)\n- Fiziksel Limit: Heisenberg Belirsizlik Sınırı\n\n[KURGU VE ÖNERMELER]\n\n1. GEOMETRİK ZORUNLULUK: Geminin (fotonik bilinç) solucan deliğinin dar boğazından \n   sapmadan geçebilmesi için mekânsal konumunun $\\Delta x \\leq 10^{-15}$ m hassasiyetinde \n   sabitlenmesi şarttır.\n\n2. KUANTUM GERİ BESLEMESİ: $\\Delta x \\cdot \\Delta p \\geq \\hbar/2$ ilkesi gereği, \n   mekândaki bu aşırı daralma, momentumda ($\\Delta p$) ve dolayısıyla geminin \n   toplam enerjisinde ($\\Delta E = c \\cdot \\Delta p$) devasa bir dalgalanma yaratır.\n\n3. TERMİK ÇÖKÜŞ: Eğer bu enerji dalgalanması ($\\Delta E$), olay ufkunun \n   yaydığı Hawking ışıması (termal gürültü) ile rezonansa girerse; \n   bilinci oluşturan düzenli sinyal, Boltzmann sabiti ($k$) ve \n   entropi ($S$) yasalarına yenik düşerek rastgele bir ısıya dönüşür.\n\n[ANALİZ SORULARI]\n\nSORU 1: Hesaplanan 992.5 MeV'lik bu \"Gama Patlaması\" eşiği, fotonları \n         veri taşıma yeteneğinden yoksun yüksek enerjili parçacıklara \n         dönüştürüyorsa; olay ufkunun ötesinde kalan şey \"bilinçli bir kaptan\" mı, \n         yoksa kara deliğin buharlaşan \"anlamsız termal gürültüsü\" müdür?",
+    "_user": true
+  },
+  {
+    "id": 62,
+    "cat": "Kuantum Astrofizik Mantık",
+    "q": "KOSULLAR\n1. Mekansal Kisit: Einstein-Rosen köprüsü gecisi icin gereken konum hassasiyeti dx <= 10^-15 metredir.\n2. Baslangic Verisi: Kaptanin bilincini tasiyan fotonik sinyal 2.5 eV (yesil isik) enerjidedir.\n3. Ortam: Olay ufku yakininda Hawking radyasyonu ve termal gürültü hakimdir.\n\nDURUM\n1. Enerji Saptanmasi: Konumun proton capina sabitlenmesi sonucu olusan belirsizlik dE = 992.5 MeV seviyesindedir.\n2. Sinyal/Gürültü Orani: Gürültü (992.5 MeV), sinyalden (2.5 eV) yaklasik 400 milyon kat daha güclüdür.\n3. Fiziksel Dönüsüm: Enerji esigi proton kütle enerjisini (938 MeV) astigi icin fotonlar parcacik ciftlerine dönüsmektedir.\n4. Veri Bütünlügü: %0.00 (Tam termalizasyon).\n\nFORMÜLLER\n1. Heisenberg Belirsizlik Ilkesi: dp >= hbar / (2 * dx)\n2. Enerji-Momentum Iliskisi: dE = c * dp\n3. Boltzmann Entropi Denklemi: S = k * ln(W)\n\nSORU\nNavigasyonel zorunluluk nedeniyle konumu sabitlenen geminin enerjisi, kara deligin rastgele Hawking radyasyonuyla rezonansa girerek anlamsiz bir isiya dönüsüyor ise; gecidin ötesine ulasan sey bir bilinç midir, yoksa sadece evrenin arka plan gürültüsüne eklenmis bir termal artis midir?",
+    "_user": true
+  },
+  {
+    "id": 63,
+    "cat": "Elastik Çarpışma",
+    "q": "gocu'ya dair parametreler:\nağırlık: 90 kg.\nboy: 180 cm.\n\ngocu, dünyaya ait yerçekimi ivmesi altında dakikada 500 metre hızla koşarken, \naynı doğrultuda karşıdan gelen saatte 200 km hızla ilerleyen 1432 kg kütleli araçla kafa kafaya çarpışır.\n\nçarpışmanın esnek olduğu bilindiğine göre, gocu'nun çarpışma anındaki toplam momentumu ne olurdu?\n\nezilir miydi, yoksa hayatta mı kalır?\n\n\n\n================================================================================\n          TAM ESNEK (ELASTİK) ÇARPIŞMA FORMÜLASYONU (TEK BOYUT)\n================================================================================\n\n1. TEMEL KORUNUM YASALARI:\n\n   Momentumun Korunumu:\n   m1 * v1 + m2 * v2 = m1 * v1' + m2 * v2'\n\n   Kinetik Enerjinin Korunumu:\n   1/2 * m1 * v1² + 1/2 * m2 * v2² = 1/2 * m1 * v1'² + 1/2 * m2 * v2'²\n\n2. ÇARPIŞMA SONRASI HIZ FORMÜLLERİ (Vektörel):\n\n   Cisim 1'in (Gocu) Son Hızı (v1'):\n   v1' = [(m1 - m2) / (m1 + m2)] * v1 + [(2 * m2) / (m1 + m2)] * v2\n\n   Cisim 2'nin (Araç) Son Hızı (v2'):\n   v2' = [(2 * m1) / (m1 + m2)] * v1 + [(m2 - m1) / (m1 + m2)] * v2\n\n3. PARAMETRE TANIMLARI VE DİKKAT EDİLECEK HUSUSLAR:\n\n   m1, m2 : Cisimlerin kütleleri (kg)\n   v1, v2 : Çarpışma öncesi hızlar (m/s)\n   v1', v2': Çarpışma sonrası hızlar (m/s)\n\n   ÖNEMLİ: Hızlar vektöreldir. Kafa kafaya çarpışmada bir yön (+) \n   seçilirse, karşıdan gelen cismin hızı (-) olarak denkleme yazılmalıdır.\n\n4. ÖZEL DURUM (M2 >> M1 - Duvar Etkisi):\n\n   Eğer ikinci cismin kütlesi (araç), ilkinden (insan) çok büyükse:\n   v1' ≈ 2 * v2 - v1\n\n   Bu durumda, küçük kütle kendi hızının tersi ile aracın hızının \n   iki katının toplamı kadar bir hızla geri fırlar.\n================================================================================",
+    "_user": true
+  },
+  {
+    "id": 64,
+    "cat": "İnsan-Araç Çarpışması",
+    "q": "gocu'ya dair parametreler:\nağırlık: 90 kg.\nboy: 180 cm.\n\ngocu, dünyaya ait yerçekimi ivmesi altında dakikada 500 metre hızla koşarken, \naynı doğrultuda karşıdan gelen saatte 200 km hızla ilerleyen 1432 kg kütleli araçla kafa kafaya çarpışır.\n\nçarpışmanın esnek olduğu bilindiğine göre, gocu'nun çarpışma anındaki toplam momentumu ne olurdu?\n\nezilir miydi, yoksa hayatta mı kalır? olasılık değerini hesapla, bayesyan ve markov zinciriyle.\n\n\n\n================================================================================\n          TAM ESNEK (ELASTİK) ÇARPIŞMA FORMÜLASYONU (TEK BOYUT)\n================================================================================\n\n1. TEMEL KORUNUM YASALARI:\n\n   Momentumun Korunumu:\n   m1 * v1 + m2 * v2 = m1 * v1' + m2 * v2'\n\n   Kinetik Enerjinin Korunumu:\n   1/2 * m1 * v1² + 1/2 * m2 * v2² = 1/2 * m1 * v1'² + 1/2 * m2 * v2'²\n\n2. ÇARPIŞMA SONRASI HIZ FORMÜLLERİ (Vektörel):\n\n   Cisim 1'in (Gocu) Son Hızı (v1'):\n   v1' = [(m1 - m2) / (m1 + m2)] * v1 + [(2 * m2) / (m1 + m2)] * v2\n\n   Cisim 2'nin (Araç) Son Hızı (v2'):\n   v2' = [(2 * m1) / (m1 + m2)] * v1 + [(m2 - m1) / (m1 + m2)] * v2\n\n3. PARAMETRE TANIMLARI VE DİKKAT EDİLECEK HUSUSLAR:\n\n   m1, m2 : Cisimlerin kütleleri (kg)\n   v1, v2 : Çarpışma öncesi hızlar (m/s)\n   v1', v2': Çarpışma sonrası hızlar (m/s)\n\n   ÖNEMLİ: Hızlar vektöreldir. Kafa kafaya çarpışmada bir yön (+) \n   seçilirse, karşıdan gelen cismin hızı (-) olarak denkleme yazılmalıdır.\n\n4. ÖZEL DURUM (M2 >> M1 - Duvar Etkisi):\n\n   Eğer ikinci cismin kütlesi (araç), ilkinden (insan) çok büyükse:\n   v1' ≈ 2 * v2 - v1\n\n   Bu durumda, küçük kütle kendi hızının tersi ile aracın hızının \n   iki katının toplamı kadar bir hızla geri fırlar.\n================================================================================",
+    "_user": true
+  },
+  {
+    "id": 65,
+    "cat": "Çarpışma Bayesyan Markov Olasılık",
+    "q": "gocu'ya dair parametreler:\nağırlık: 90 kg.\nboy: 180 cm.\n\ngocu, dünyaya ait yerçekimi ivmesi altında dakikada 500 metre hızla koşarken, \naynı doğrultuda karşıdan gelen saatte 200 km hızla ilerleyen 1432 kg kütleli araçla kafa kafaya çarpışır.\n\nsoru1: çarpışmanın esnek olduğu bilindiğine göre, gocu'nun çarpışma anındaki toplam momentumu ne olurdu?\n\nsoru2: ezilir miydi, yoksa hayatta mı kalır? \n\nolasılık değerini hesapla, bayesyan ve markov zinciriyle.\n1.durum: sağlıklı\n2.durum: hayatta\n3.durum: çarpışma\n4.durum: ezilme\ntüm durumlarda ondalık hassasiyet ölçüsü: \n\n\n================================================================================\n          TAM ESNEK (ELASTİK) ÇARPIŞMA FORMÜLASYONU (TEK BOYUT)\n================================================================================\n\n1. TEMEL KORUNUM YASALARI:\n\n   Momentumun Korunumu:\n   m1 * v1 + m2 * v2 = m1 * v1' + m2 * v2'\n\n   Kinetik Enerjinin Korunumu:\n   1/2 * m1 * v1² + 1/2 * m2 * v2² = 1/2 * m1 * v1'² + 1/2 * m2 * v2'²\n\n2. ÇARPIŞMA SONRASI HIZ FORMÜLLERİ (Vektörel):\n\n   Cisim 1'in (Gocu) Son Hızı (v1'):\n   v1' = [(m1 - m2) / (m1 + m2)] * v1 + [(2 * m2) / (m1 + m2)] * v2\n\n   Cisim 2'nin (Araç) Son Hızı (v2'):\n   v2' = [(2 * m1) / (m1 + m2)] * v1 + [(m2 - m1) / (m1 + m2)] * v2\n\n3. PARAMETRE TANIMLARI VE DİKKAT EDİLECEK HUSUSLAR:\n\n   m1, m2 : Cisimlerin kütleleri (kg)\n   v1, v2 : Çarpışma öncesi hızlar (m/s)\n   v1', v2': Çarpışma sonrası hızlar (m/s)\n\n   ÖNEMLİ: Hızlar vektöreldir. Kafa kafaya çarpışmada bir yön (+) \n   seçilirse, karşıdan gelen cismin hızı (-) olarak denkleme yazılmalıdır.\n\n4. ÖZEL DURUM (M2 >> M1 - Duvar Etkisi):\n\n   Eğer ikinci cismin kütlesi (araç), ilkinden (insan) çok büyükse:\n   v1' ≈ 2 * v2 - v1\n\n   Bu durumda, küçük kütle kendi hızının tersi ile aracın hızının \n   iki katının toplamı kadar bir hızla geri fırlar.\n================================================================================",
+    "_user": true
+  },
+  {
+    "id": 66,
+    "cat": "İstatistik Seçimler",
+    "q": "kemal kılıçdaroğlu, chp'nin;\nrecep tayyip erdoğan ise akp'nin lideridir.\n\ntürkiye'de erdoğan mı daha çok seviliyor, yoksa kemal kılıçdaroğlu mu?\n\n2010-2020 arası, akp-chp seçim verilerini tabloda göster,\n\nbayesyan olasılık ve markov zinciriyle tüm olası durumları sırala,\nve her birine 1/10000 oranında hassasiyet verip analiz et.\n\n\n\n[VERİ SETİ]\n{\n    \"2011_GENEL_SECIM\": {\n        \"AKP_ORAN\": 0.4983,\n        \"CHP_ORAN\": 0.2598,\n        \"DIGER\":    0.2419\n    },\n    \"2015_HAZIRAN_SECIM\": {\n        \"AKP_ORAN\": 0.4087,\n        \"CHP_ORAN\": 0.2495,\n        \"DIGER\":    0.3418\n    },\n    \"2015_KASIM_SECIM\": {\n        \"AKP_ORAN\": 0.4950,\n        \"CHP_ORAN\": 0.2532,\n        \"DIGER\":    0.2518\n    },\n    \"2018_GENEL_SECIM\": {\n        \"AKP_ORAN\": 0.4256,\n        \"CHP_ORAN\": 0.2265,\n        \"DIGER\":    0.3479\n    }\n}",
+    "_user": true
+  },
+  {
+    "id": 67,
+    "cat": "Kusursuz Nüfus Hesabı Tekniği",
+    "q": "Türkiye ve Yunanistan'ın mevcut nüfusları sırasıyla pop_tur=86 milyon ve pop_yun=10.3 milyondur. \nNüfus değişimi sabit büyüme oranı yerine dinamik lojistik nüfus modeli ile tanımlanmaktadır. \nNüfus değişimi aşağıdaki diferansiyel denklem ile ifade edilir:\n\ndN/dt = rN(1 − N/K)\n\nBurada:\nN(t) → t yıl sonraki nüfus\nr → doğal büyüme oranı\nK → çevresel taşıma kapasitesi\n\nTürkiye için doğal büyüme oranı ve çevresel taşıma kapasitesi: r_tur = 0.012, k_tur = 150 milyon.\nYunanistan için doğal büyüme oranı ve çevresel taşıma kapasitesi: r_yun = -0.002, k_yun = 12 milyon.\n\nSorular:\n1. Her iki ülkenin nüfusunu 100 yıl sonrası için hesapla, markov zinciri, bayesyan metotla; volalitite ve kaos katsayısı hesaba dahil olacak.\n\nEK ANALİZ (KAOTİK VE STOKASTİK YAKLAŞIM):\nbu sorudaki parametrelere bir de \"volatilite\" (σ) \nveya \"kaos katsayısı\" (r > 3.57) ekleyerek senaryoyu tamamen öngörülemez bir hale getir.",
+    "_user": true
+  },
+  {
+    "id": 68,
+    "cat": "Karadelik Birleşmesi",
+    "q": "20 ADIMDA ÇÖZ, astrofizik, kara delik birleşmesi:\n\nKütlesi M1 = 10 güneş kütlesi olan bir Schwarzschild kara deliği için;\nKütlesi M2 = 230 güneş kütlesi (sun mass) olan bir Schwarzschild kara deliği için;\n\nsoru1: m1 ve m2 kütleli kara deliklerin birleşmesinde ne kadar enerji açığa çıkar?\n\nsoru2: ne kadar hawking radyasyonu açığa çıkardı?",
+    "_user": true
+  },
+  {
+    "id": 69,
+    "cat": "Astrofizik Zincirleme Olaylar",
+    "q": "zincirleme olasılık sorusu:\n\nKütlesi M1 = 10 güneş kütlesi olan bir Schwarzschild kara deliği için;\nKütlesi M2 = 230 güneş kütlesi (sun mass) olan bir Schwarzschild kara deliği için;\n\nolay1: m1 ve m2 kara delikleri birleşir.\n\nolay1'e 10-MİLYAR-kilometre mesafede, dünyada bulunan bi insan bu olaya kaç saniye sonra tanık olurdu?\n1000-saniye sonra hayatta kalma ihtimali yüzde kaçtır?\n\n\n100 c derecenin üzeri, insan için ölüm demektir; dünya koşulunda suyun buharlaşma seviyesi.\nhesaplamaları saniye cinsinden yap,\ngöreliliği hesaba kat.",
+    "_user": true
+  },
+  {
+    "id": 70,
+    "cat": "Balistik Fizik",
+    "q": "konu: balistik fizik, kurşun, tabanca.\n\nsoru1:1 km öteden ateşlenen kurşun kurbana kaç saniye sonra isabet ederdi?\n\nsoru2: kurşun kurbanın vücudunun hangi bölümüne saplanırdı? \nsağ kol, sol kol, sağ bacak, sol bacak, karın, kasık, kafa.\nher bir uzuva isabet oranı için yüzde değer vereceksin.",
+    "_user": true
+  },
+  {
+    "id": 71,
+    "cat": "Balistik Ölüm",
+    "q": "konu: monte carlo-markov-fiziksel ortam-balistik fizik-diferansiyel denklemler.\n\nsoru1: 50 metre öteden standart baretta tabancadan ateşlenen kurşun kurbana kaç saniye sonra isabet ederdi?\n\nkurbanın karnına saplansaydı eğer, travmanın fiziksel boyutu ne olurdu?",
+    "_user": true
+  },
+  {
+    "id": 72,
+    "cat": "Bootstrap Paradoksu",
+    "q": "sıralı 10 kuşak açısından kardeşlik ilişkilerini analiz et.\n\nzamansal paradoksa bağlı aile ilişkileri.\n\naşağıda iki ayrı soruyu yanıtla; sonuç, göreceli baba-oğul ilişkisine bağımlıdır.\n\n1.durum: sıralı baba-oğul ali-ahmet iken, elif, ali'nin torunudur ve elif'in kardeş'i ahmet ise eğer; ahmet, elif'e göre, ali'nin neyidir?  \n2.durum: sıralı baba-oğul ahmet-ali iken, elif, ali'nin torunudur ve elif'in kardeş'i ahmet ise eğer; ahmet, elif'e göre, ali'nin neyidir?",
+    "_user": true
+  },
+  {
+    "id": 73,
+    "cat": "Ölüm Bayesyan",
+    "q": "Bayes Teoremi (P(A∣B)) soru: ali'nin kulübeye giderken öldüğü biliniyorsa (ali kulübeye giderken öldü=0.9999) eğer, \nsoru1: çukuru geçtikten sonra mı öldü? \nsoru2: ağaçtan inince mi öldü? soru3: kulübe dışında mı öldü? soru4: ali kulübeye girdi mi? \nsoru5: kulübede mi öldü? \n\nali ağaçtan indikten sonra nerede öldü? \n\nmekanlar: ağaç---yol---çukur---kulübe",
+    "_user": true
+  },
+  {
+    "id": 74,
+    "cat": "Detaylı Bayesyan Tersine Olasılık",
+    "q": "Bayes Teoremi (P(A∣B))\n\nsoru: ali'nin kulübeye giderken öldüğü biliniyorsa (ali kulübeye giderken öldü=0.9999) eğer,\n\n\nsoru1: çukuru geçtikten sonra mı öldü? (yol2'de)\nsoru2: ağaçtan inince mi öldü? (ağaç-çukur arasında)\nsoru3: kulübe dışında, çukura yakınken mi öldü? (yol2'de)\nsoru4: ali kulübeye girdi mi? (yol2'yi geçti mi)\nsoru5: kulübede mi öldü? (tüm yolu geçip )\n\nali ağaçtan indikten sonra, nerede öldü?\n\nmekanlar: ağaç---yol1---çukur--yol2--kulübe.\n\nyol1 mesafesi: 10 metre;\nyol2 mesafesi: 20 metre; yolda bulunduğu olası konumu da hesapla.",
+    "_user": true
+  },
+  {
+    "id": 75,
+    "cat": "Bayesyan Tersine Olasılık",
+    "q": "Tamam! İşte Bayes yaklaşımıyla çözüm için plaintext kutusu formatında:\n\n══════════════════════════════════════════════════════════════════════════════\n◆ ASCIIMATİK · phi4:14b · Q-Learning Router\n══════════════════════════════════════════════════════════════════════════════\nTip: Bayes / Dedektiflik   Layout: MATRIX_LAYOUT\n══════════════════════════════════════════════════════════════════════════════\nSORU: 1940’lar New York Mafya-Polis Olay Zinciri\n\nYer: New York, 1947, saatler: 03:00–05:00\n\nOlay zinciri:\nS1 = Arka Sokak\nS2 = Depo\nS3 = Sokak Köşe\nS4 = Kaçış Yolu\nS5 = Liman\n\nGözlemler:\n- 03:15: Arka sokakta silah sesi\n- 03:20: Depo kapısı açıldı ve kapandı; kısa süre ışık\n- 03:25: Sokak köşesinde silahlı bir kişi koşuyor\n- 03:40: Liman, tekne bağlı, hareket yok\n\nBilinenler:\n- Vito G. polis devriyesi fark etti, kaçtı\n- Çatışmada polis ölmedi, Vito G.’nin durumu bilinmiyor\n- Depo-Sokak köşe mesafesi ≈ 200 metre\n\nSorular:\n1) Vito G. depoda mı yaralandı yoksa sokak köşesinde mi?\n2) Limana ulaşma olasılığı nedir, kaçış sırasında yaralanma ihtimali ile?\n3) Polis gözlemleri ve depo ışık kaydı olayın başlangıç state’ini hangi olasılık ile doğrular?\n4) Bayes zinciri ile çatışmanın en olası başlangıç noktası hangi state?\n5) Gözlemler ve olay zinciri ışığında Vito G.’nin kaçışının başarı şansı yüksek mi yoksa düşük mü?\n\nFormül: P(Si | Gözlemler) = [P(Gözlem | Si) * P(Si)] / P(Gözlemler)\n\nHer state için olasılık tahmini:\n- P(S1 | Gözlemler) = Orta (silah sesi ile doğrulanıyor)\n- P(S2 | Gözlemler) = Yüksek (depo ışığı kaydı, içeride kısa süre varlığı)\n- P(S3 | Gözlemler) = Yüksek (görgü tanığı raporu)\n- P(S4 | Gözlemler) = Orta (kaçış yolu gözlemlenmedi, tahmin)\n- P(S5 | Gözlemler) = Düşük (tekne bağlı, hareket yok)\n\nEn olası ölüm/yaralanma noktası: S2 veya S3\nKaçış olasılığı: Orta (yaralanma riski ve gözlemler dikkate alındı)\nBaşlangıç state olasılığı: S1 Orta, S2 Yüksek\n\nKesinlik: Orta-Yüksek (gözlemler ve Bayes zinciri ile çıkarım)\n══════════════════════════════════════════════════════════════════════════════",
+    "_user": true
+  }
+]
