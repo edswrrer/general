@@ -6035,6 +6035,117 @@ class NumericSymbolicUnitNormalizer:
 
 _global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
 
+
+class NonlinearProcessIntegrityController:
+    """
+    Non-lineer düşünme adımlarında süreç bütünlüğü denetimi:
+      - formül yazım normalizasyonu
+      - adımlar arası birim tutarlılığı
+      - sabit/değişken geçişlerinin izlenmesi
+    İsteğe göre (config) alt denetimleri aç/kapatabilir.
+    """
+
+    def __init__(self, normalizer: NumericSymbolicUnitNormalizer):
+        self.normalizer = normalizer
+
+    def _normalize_formula_syntax(self, formula: str) -> str:
+        s = str(formula or "")
+        s = s.replace("×", "*").replace("÷", "/").replace("−", "-")
+        s = re.sub(r"\s+", " ", s).strip()
+        s = re.sub(r"\s*=\s*", " = ", s)
+        s = re.sub(r"\s*\+\s*", " + ", s)
+        s = re.sub(r"\s*-\s*", " - ", s)
+        s = re.sub(r"\s*/\s*", " / ", s)
+        s = re.sub(r"\s*\*\s*", " * ", s)
+        s = re.sub(r"\s*\^\s*", "^", s)
+        return re.sub(r"\s+", " ", s).strip()
+
+    def _extract_assignments(self, text: str) -> list:
+        """
+        x=5, v = 12 m/s, alpha := 0.3 biçimlerinden atama yakalar.
+        """
+        hits = []
+        for m in re.finditer(
+            r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)\s*([-+]?\d+(?:\.\d+)?)\s*([A-Za-zµΩ°/*^\-0-9]*)",
+            str(text or ""),
+        ):
+            var = m.group(1)
+            val = float(m.group(2))
+            unit_raw = (m.group(3) or "").strip()
+            unit_sig = self.normalizer.unit_signature(unit_raw) if unit_raw else ""
+            hits.append({"var": var, "value": val, "unit": unit_sig, "raw_unit": unit_raw})
+        return hits
+
+    def audit(self, sol_data: dict, control: dict | None = None) -> dict:
+        cfg = {
+            "enable_formula_normalization": True,
+            "enable_unit_consistency": True,
+            "enable_constant_variable_consistency": True,
+            "strict_mode": False,
+        }
+        cfg.update(control or {})
+
+        out = dict(sol_data or {})
+        steps = []
+        violations = []
+        notes = []
+        symbol_state = {}
+        unit_state = {}
+
+        for i, st in enumerate(out.get("steps", []) or []):
+            ss = dict(st or {})
+            formula = str(ss.get("formula", ""))
+            result = str(ss.get("result", ""))
+            content = str(ss.get("content", ""))
+
+            if cfg.get("enable_formula_normalization", True) and formula:
+                norm_formula = self._normalize_formula_syntax(formula)
+                norm_formula = self.normalizer.normalize_numeric_text(norm_formula)
+                if norm_formula != formula:
+                    notes.append(f"[FORMULA-NORM] step={i+1}")
+                ss["formula"] = norm_formula
+
+            text_bundle = " | ".join([formula, result, content])
+            assigns = self._extract_assignments(text_bundle)
+            for a in assigns:
+                v = a["var"]
+                prev = symbol_state.get(v)
+                if cfg.get("enable_constant_variable_consistency", True):
+                    if prev is not None:
+                        delta = abs(float(prev["value"]) - float(a["value"]))
+                        ref = max(1.0, abs(float(prev["value"])))
+                        tol = 0.05 if not cfg.get("strict_mode") else 0.01
+                        if delta / ref > tol:
+                            violations.append(
+                                f"[CONST-VAR-DRIFT] step={i+1} {v}: {prev['value']} -> {a['value']}"
+                            )
+                symbol_state[v] = a
+
+                if cfg.get("enable_unit_consistency", True) and a["unit"]:
+                    prev_u = unit_state.get(v)
+                    if prev_u and prev_u != a["unit"]:
+                        violations.append(
+                            f"[UNIT-MISMATCH] step={i+1} {v}: {prev_u} -> {a['unit']}"
+                        )
+                    unit_state[v] = a["unit"]
+
+            step_units = []
+            for key in ("formula", "result", "content"):
+                step_units.extend(self.normalizer.annotate_units(ss.get(key, "")))
+            if step_units:
+                ss["_unit_signatures"] = list(dict.fromkeys(step_units))
+
+            steps.append(ss)
+
+        out["steps"] = steps
+        summary = {
+            "checked_steps": len(steps),
+            "violation_count": len(violations),
+            "note_count": len(notes),
+            "strict_mode": bool(cfg.get("strict_mode", False)),
+        }
+        return {"sol_data": out, "violations": violations, "notes": notes, "summary": summary, "config": cfg}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ARITHMETIC PRECISION VALIDATOR — Tüm aritmetik adımlar için yüksek doğruluk
 #  Amaç: eksi/mertebe hatalarını otomatik düzeltmek, içsel tutarsızlıkları yakalamak
@@ -15940,6 +16051,7 @@ _meta_learner = MetaLearningEngine()
 _thinking_loop_engine = ThinkingLoopBackpropEngine(PersistentLearningMemory())
 _knowledge_base_updater = KnowledgeBaseUpdater()
 _response_generator = ResponseGenerator()
+_nonlinear_integrity_controller = NonlinearProcessIntegrityController(_global_num_unit_normalizer)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -18567,8 +18679,9 @@ def _build_planner_steps(sub_questions: list, route_features: dict, question: st
 
 @app.route("/solve", methods=["POST"])
 def solve():
-    data = request.get_json()
+    data = request.get_json() or {}
     question = data.get("question", "").strip()
+    process_control = data.get("process_control", {}) if isinstance(data, dict) else {}
     if not question:
         return jsonify({"error": "Soru boş olamaz"}), 400
 
@@ -18656,6 +18769,15 @@ def solve():
             "Soru metni çoklu-alt-soru planlayıcısı ile ayrıştırıldı; yinelenen adımlar ayıklandı.",
         )
 
+    # ── 4.5) Non-lineer süreç bütünlüğü: birim/sabit-değişken/formül kontrolü ─
+    integrity_report = _nonlinear_integrity_controller.audit(sol_data, control=process_control)
+    sol_data = integrity_report.get("sol_data", sol_data)
+    if integrity_report.get("violations"):
+        sol_data.setdefault("_consistency_violations", [])
+        sol_data["_consistency_violations"].extend(integrity_report["violations"])
+    if integrity_report.get("notes"):
+        sol_data["_process_integrity_notes"] = integrity_report["notes"]
+
     # ── 5) DOĞRULAMA: Multi-Layer Validator ───────────────────────────────────
     step_verification = _step_verifier.verify(sol_data.get("steps") or [], constraint_graph)
     if step_verification.get("violations"):
@@ -18737,6 +18859,7 @@ def solve():
     solver_ctx["_prompt_constraints"] = prompt_constraints
     solver_ctx["_meta_prediction"] = meta_prediction
     solver_ctx["_step_verification"] = step_verification
+    solver_ctx["_process_integrity"] = integrity_report.get("summary", {})
 
     # ── Açıklamayı NLP tabanlı mantıksal-sayısal-olasılıksal vektörle zenginleştir ──
     sol_data = _explanation_enricher.enrich(question, sol_data, signals, causal_ctx)
@@ -18929,6 +19052,7 @@ def solve():
             "deep_representation": deep_repr,
             "thinking_loop": thinking_loop_ctx,
             "knowledge_context": knowledge_ctx,
+            "process_integrity": integrity_report.get("summary", {}),
             # PDF için ek alanlar
             "question": question,
             "steps": sol_data.get("steps", []),
