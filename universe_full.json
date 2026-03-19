@@ -3,9 +3,9 @@
   "metadata": {
     "source": "NIST CODATA 2022 + Serway 9th Ed + Griffiths + Landau + Wikipedia exact formulas",
     "total_constants": 62,
-    "total_equations": 487,
-    "last_updated": "2026-03-16",
-    "note": "Tüm değerler Türkçe + İngilizce, Serway bölümleri işaretli, zero hard-coding"
+    "total_equations": 494,
+    "last_updated": "2026-03-19",
+    "note": "Tüm değerler Türkçe + İngilizce, Serway bölümleri işaretli, zero hard-coding + speculative_fiction_equation_discovery"
   },
   "constants": {
     "c": {
@@ -429,14 +429,13 @@
       "formula": "Δ = r² - 2 M r + a² ; ρ² = r² + a² cos²θ",
       "name_tr": "Kerr metriği (dönen kara delik)"
     },
-   "hawking_temperature": {
-  "formula": "T_H = ħ c³ / (8 π G M k_B)",
-  "name_tr": "Hawking sıcaklığı",
-  "description": "Schwarzschild kara deliğin Hawking sıcaklığı",
-  "note": "ÖNEMLİ: T_H ∝ 1/M → kütle arttıkça sıcaklık azalır. Kütle 10 kat artınca sıcaklık TAM 10 kat azalır! (M = 10 M☉ → T_H ≈ 6.17 × 10^{-9} K)",
-  "proportionality": "T_H ∝ 1/M",
-  "example_M10": "M = 10 M☉ için T_H = 6.169 × 10^{-9} K"
-      
+    "hawking_temperature": {
+      "formula": "T_H = ħ c³ / (8 π G M k_B)",
+      "name_tr": "Hawking sıcaklığı",
+      "description": "Schwarzschild kara deliğin Hawking sıcaklığı",
+      "note": "ÖNEMLİ: T_H ∝ 1/M → kütle arttıkça sıcaklık azalır. Kütle 10 kat artınca sıcaklık TAM 10 kat azalır! (M = 10 M☉ → T_H ≈ 6.17 × 10^{-9} K)",
+      "proportionality": "T_H ∝ 1/M",
+      "example_M10": "M = 10 M☉ için T_H = 6.169 × 10^{-9} K"
     },
     "bekenstein_entropy": {
       "formula": "S = k_B c³ A / (4 ħ G)",
@@ -547,6 +546,43 @@
     "black_scholes_call": {
       "formula": "C = S N(d1) - K e^{-r t} N(d2)",
       "name_tr": "Black-Scholes çağrı opsiyon fiyatı"
+    }
+  },
+  "speculative_fiction_equation_discovery": {
+    "inverse_square_pressure": {
+      "formula": "pressure = kappa * E / (r^2 + epsilon)",
+      "name_tr": "Ters-kare basınç modeli",
+      "description": "Spekülatif senaryoda enerjiye bağlı yayılım modeli"
+    },
+    "injury_composite": {
+      "formula": "injury_score = w_p*pressure + w_i*impulse - w_s*shielding",
+      "name_tr": "Bileşik etki skoru",
+      "description": "Etki, impuls ve koruma değişkenlerinin birleşik risk fonksiyonu"
+    },
+    "survival_sigmoid": {
+      "formula": "survival_prob = 1 / (1 + exp(injury_total))",
+      "name_tr": "Hayatta kalım olasılığı (sigmoid)",
+      "description": "Risk arttıkça olasılığı [0,1] aralığında sınırlar"
+    },
+    "causal_chain_factorization": {
+      "formula": "P(I,R,S,D) = P(I) * P(R|I) * P(S|R) * P(D|S)",
+      "name_tr": "Nedensel zincir çarpanlaştırması",
+      "description": "DAG tabanlı olay zinciri için ortak dağılım ayrışımı"
+    },
+    "bma_predictive": {
+      "formula": "P(y|D) = Σ_k P(y|M_k,D) P(M_k|D)",
+      "name_tr": "Bayes model ortalaması",
+      "description": "Çoklu hipotezlerden tahmin birleştirme"
+    },
+    "symbolic_score": {
+      "formula": "score(eq) = log P(D|eq) + log P(eq) - lambda*complexity(eq)",
+      "name_tr": "Denklem keşfi skoru",
+      "description": "Denklem adaylarını Bayes + karmaşıklık cezasıyla sıralar"
+    },
+    "metacontradiction_depth": {
+      "formula": "C_{t+1} = C_t + alpha * contradiction_intensity",
+      "name_tr": "Meta-çelişki derinlik güncellemesi",
+      "description": "Self-trap döngüsünde çelişki derinliği evrimi"
     }
   }
 }
