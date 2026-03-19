@@ -22526,6 +22526,197 @@ class WorldModelBuilder:
         }
 
 
+class HypergraphBuilder:
+    """Metni n-ary hypergraph temsiline dönüştürür."""
+
+    def build(self, text: str, extracted: Dict[str, Any], task_graph: Dict[str, Any]) -> Dict[str, Any]:
+        clauses = [c.strip() for c in re.split(r"[.;\n]+", text or "") if c.strip()]
+        nodes = set(extracted.get("entities", [])) | set(extracted.get("variables", []))
+        hyperedges = []
+        temporal_terms = {"önce", "sonra", "aynı", "eşzamanlı", "simultaneous", "before", "after"}
+
+        for i, clause in enumerate(clauses, start=1):
+            clause_tokens = re.findall(r"[a-zA-ZÇĞİÖŞÜçğıöşü0-9_><=]+", clause.lower())
+            edge_nodes = sorted(set(clause_tokens[:10]))
+            nodes.update(edge_nodes)
+            tags = []
+            if any(tok in temporal_terms for tok in clause_tokens):
+                tags.append("temporal")
+            if any(tok in {"patlama", "çarpma", "hız", "enerji", "hasar", "ivme"} for tok in clause_tokens):
+                tags.append("physics")
+            if any(tok in {"paradoks", "çelişkili", "neden", "sonuç"} for tok in clause_tokens):
+                tags.append("causal")
+            hyperedges.append({"id": f"HE{i}", "nodes": edge_nodes, "tags": sorted(set(tags))})
+
+        for idx, node in enumerate(task_graph.get("nodes", []), start=1):
+            nodes.add(node)
+            hyperedges.append({"id": f"TASK{idx}", "nodes": [node], "tags": ["task"]})
+
+        return {"nodes": sorted(nodes), "hyperedges": hyperedges}
+
+
+class RewriteRuleEngine:
+    """Pattern -> replacement tabanlı rewrite kuralları."""
+
+    def apply(self, graph: Dict[str, Any]) -> Dict[str, Any]:
+        new_edges = []
+        generated_relations = []
+
+        for e in graph.get("hyperedges", []):
+            node_set = set(e.get("nodes", []))
+            tags = set(e.get("tags", []))
+
+            if {"enerji", "mesafe"}.intersection(node_set) or "physics" in tags:
+                generated_relations.append("pressure ~ E/(r^2 + eps)")
+                new_edges.append({"id": f"{e['id']}_RW1", "nodes": sorted(node_set | {"pressure", "E", "r"}), "tags": ["emergent", "inverse_square"]})
+
+            if {"önce", "sonra"}.intersection(node_set) or "temporal" in tags:
+                generated_relations.append("t_event_A <= t_event_B OR retrocausal(t_B -> t_A)")
+                new_edges.append({"id": f"{e['id']}_RW2", "nodes": sorted(node_set | {"t_A", "t_B", "retrocausal"}), "tags": ["emergent", "temporal_conflict"]})
+
+            if {"ışık", "hızından", "v", "c", "hızlı"}.intersection(node_set):
+                generated_relations.append("v_shock > c -> alt_metric_time")
+                new_edges.append({"id": f"{e['id']}_RW3", "nodes": sorted(node_set | {"v_shock", "c", "metric_alpha"}), "tags": ["emergent", "superluminal"]})
+
+            if {"hasar", "mesafe", "artıyor"}.intersection(node_set):
+                generated_relations.append("damage ~ k0 + k1*r + k2*r^2")
+                new_edges.append({"id": f"{e['id']}_RW4", "nodes": sorted(node_set | {"damage", "r", "k1", "k2"}), "tags": ["emergent", "increasing_damage"]})
+
+        merged = {
+            "nodes": sorted(set(graph.get("nodes", [])) | {n for e in new_edges for n in e.get("nodes", [])}),
+            "hyperedges": graph.get("hyperedges", []) + new_edges,
+            "generated_relations": sorted(set(generated_relations)),
+        }
+        return merged
+
+
+class HypergraphEvolutionEngine:
+    """G(t+1)=rewrite(G(t)) döngüsü."""
+
+    def evolve(self, graph: Dict[str, Any], rewriter: RewriteRuleEngine, steps: int = 3) -> Dict[str, Any]:
+        history = []
+        current = graph
+        for t in range(max(1, steps)):
+            nxt = rewriter.apply(current)
+            history.append({
+                "step": t + 1,
+                "node_count": len(nxt.get("nodes", [])),
+                "hyperedge_count": len(nxt.get("hyperedges", [])),
+                "relation_count": len(nxt.get("generated_relations", [])),
+            })
+            if len(nxt.get("hyperedges", [])) == len(current.get("hyperedges", [])):
+                current = nxt
+                break
+            current = nxt
+        return {"final_graph": current, "history": history}
+
+
+class EquationExtractionLayer:
+    """Emergent hypergraph'tan denklem hipotezleri çıkarır."""
+
+    def extract(self, evolved_graph: Dict[str, Any]) -> List[Dict[str, Any]]:
+        tags = set()
+        for edge in evolved_graph.get("final_graph", {}).get("hyperedges", []):
+            tags.update(edge.get("tags", []))
+
+        equations = [
+            {"id": "EQ_BASE_1", "equation": "E_kin = 0.5*m*v^2", "family": "classical_energy"},
+            {"id": "EQ_BASE_2", "equation": "pressure = gamma*E/(4*pi*(r^2+eps))", "family": "shockwave"},
+        ]
+        if "superluminal" in tags:
+            equations.append({"id": "EQ_SUPER_1", "equation": "v_eff = c*(1+alpha*Psi), alpha>0", "family": "alt_physics"})
+        if "temporal_conflict" in tags:
+            equations.append({"id": "EQ_TIME_1", "equation": "t_effect = t_cause + delta - beta*feedback", "family": "retrocausal"})
+            equations.append({"id": "EQ_TIME_2", "equation": "x_t = F(x_t, x_{t+1})", "family": "self_referential"})
+        if "increasing_damage" in tags:
+            equations.extend([
+                {"id": "EQ_DMG_1", "equation": "damage = a + b*r", "family": "increasing_linear"},
+                {"id": "EQ_DMG_2", "equation": "damage = a + b*r^2", "family": "increasing_quadratic"},
+                {"id": "EQ_DMG_3", "equation": "damage = a + b*exp(lambda*r)", "family": "increasing_exponential"},
+            ])
+        return equations
+
+
+class VariableAssignmentEngine:
+    """Metinden sayısal değerleri çıkarıp eksikleri veri-bağımlı atar."""
+
+    def assign(self, text: str, extracted: Dict[str, Any]) -> Dict[str, Any]:
+        values = {}
+        nums = [float(x) for x in re.findall(r"[-+]?\d+(?:\.\d+)?", text or "")]
+        units = re.findall(r"([-+]?\d+(?:\.\d+)?)\s*(m/s|kg|m|metre|pa|j|s)", (text or "").lower())
+        for val, unit in units:
+            key = {
+                "m/s": "v",
+                "kg": "m",
+                "m": "r",
+                "metre": "r",
+                "pa": "pressure",
+                "j": "E",
+                "s": "t",
+            }.get(unit, unit)
+            values[key] = float(val)
+
+        # Veri-bağımlı fallback: metindeki sayı ölçeğinden türet
+        magnitude = max(nums) if nums else 10.0
+        values.setdefault("m", max(1.0, magnitude * 0.1))
+        values.setdefault("v", max(1.0, magnitude))
+        values.setdefault("r", max(1.0, min(100.0, magnitude * 0.02)))
+        values.setdefault("n_entities", max(1, int(sum(1 for e in extracted.get("entities", []) if e in {"insan", "çocuk", "ajan"}) or 2)))
+        values["E_kin"] = 0.5 * values["m"] * (values["v"] ** 2)
+        return values
+
+
+class BayesianAssumptionLayer:
+    """Prior/posterior varsayımları üretir."""
+
+    def build(self, assigned: Dict[str, Any], latent: Dict[str, Any]) -> Dict[str, Any]:
+        priors = {}
+        for k, v in latent.items():
+            priors[k] = {"prior": v, "source": "latent_generator"}
+        for k, v in assigned.items():
+            if isinstance(v, (int, float)):
+                sigma = max(1e-6, abs(v) * 0.15)
+                priors[k] = {"prior": {"dist": "Normal", "params": [float(v), float(sigma)]}, "source": "assignment_engine"}
+        return {"priors": priors, "count": len(priors)}
+
+
+class MultiWorldSampler:
+    """Çoklu dünya örnekleme + hasar dağılımı."""
+
+    def sample(self, assigned: Dict[str, Any], n_worlds: int = 128) -> Dict[str, Any]:
+        rng = random.Random(int(assigned.get("E_kin", 1)) % 1000003)
+        worlds = []
+        organ_weights = {"head": 1.8, "chest": 1.3, "leg": 0.8}
+        for i in range(max(8, n_worlds)):
+            r = max(0.5, assigned.get("r", 3.0) * (0.7 + 0.6 * rng.random()))
+            e = max(1e-6, assigned.get("E_kin", 10.0) * (0.6 + 0.8 * rng.random()))
+            pressure = e / (4.0 * math.pi * (r ** 2))
+            shielding = 0.2 + 0.8 * rng.random()
+            organ_damage = {
+                organ: min(1.0, (pressure * w / (1e4 + 5e3 * shielding)))
+                for organ, w in organ_weights.items()
+            }
+            worlds.append({
+                "world_id": i + 1,
+                "r": round(r, 4),
+                "E": round(e, 4),
+                "pressure": round(pressure, 6),
+                "organ_damage": organ_damage,
+            })
+
+        avg_pressure = sum(w["pressure"] for w in worlds) / len(worlds)
+        avg_damage = {
+            organ: sum(w["organ_damage"][organ] for w in worlds) / len(worlds)
+            for organ in organ_weights
+        }
+        return {
+            "n_worlds": len(worlds),
+            "avg_pressure": round(avg_pressure, 6),
+            "avg_damage": {k: round(v, 6) for k, v in avg_damage.items()},
+            "worlds_preview": worlds[:10],
+        }
+
+
 class RelationDiscoveryEngine:
     """Metin + değişkenlere göre aday ilişkiler çıkarır."""
 
@@ -22679,6 +22870,13 @@ class SpeculativeFictionOrchestrator:
         self.intent = PromptIntentSplitter()
         self.task_graph = TaskGraphBuilder()
         self.extractor = VariableEntityExtractor()
+        self.hypergraph = HypergraphBuilder()
+        self.rewriter = RewriteRuleEngine()
+        self.evolution = HypergraphEvolutionEngine()
+        self.eq_extract = EquationExtractionLayer()
+        self.assigner = VariableAssignmentEngine()
+        self.bayes_assumptions = BayesianAssumptionLayer()
+        self.multi_world = MultiWorldSampler()
         self.latent = LatentVariableGenerator()
         self.assumptions = AssumptionRegistry()
         self.world = WorldModelBuilder()
@@ -22700,14 +22898,21 @@ class SpeculativeFictionOrchestrator:
         task_graph = self.task_graph.build(intent_payload)
         extracted = self.extractor.extract(prompt)
         latent_priors = self.latent.generate(extracted)
+        assigned = self.assigner.assign(prompt, extracted)
+        bayes_layer = self.bayes_assumptions.build(assigned, latent_priors)
         assumptions = self.assumptions.register(extracted, latent_priors)
-        world_model = self.world.build(extracted, latent_priors, task_graph)
+        world_model = self.world.build(extracted, bayes_layer, task_graph)
+
+        hgraph_0 = self.hypergraph.build(prompt, extracted, task_graph)
+        evolved = self.evolution.evolve(hgraph_0, self.rewriter, steps=4)
+        emergent_equations = self.eq_extract.extract(evolved)
 
         relations = self.relations.discover(extracted)
-        equations = self.eq_discovery.discover(relations)
+        equations = self.eq_discovery.discover(relations) + emergent_equations
         hypotheses = self.multi_h.generate(equations)
         selection = self.model_select.select(hypotheses)
         validation = self.validation.validate(hypotheses)
+        worlds = self.multi_world.sample(assigned, n_worlds=160)
 
         constraints = self.constraint_builder.build(prompt)
         paradox_constraints = self.paradox_injector.inject(constraints)
@@ -22726,26 +22931,48 @@ class SpeculativeFictionOrchestrator:
             "task_graph": task_graph,
             "entities": extracted.get("entities", []),
             "variables": extracted.get("variables", []),
+            "variable_assignment": assigned,
             "priors": latent_priors,
+            "bayesian_assumptions": bayes_layer,
             "assumptions": assumptions,
             "world_model": world_model,
+            "hypergraph": {
+                "initial": hgraph_0,
+                "evolution": evolved.get("history", []),
+                "emergent": evolved.get("final_graph", {}),
+            },
             "relations": relations,
             "hypotheses": hypotheses,
             "selected_model": selection.get("selected", {}),
             "model_ranking": selection.get("ranked", []),
             "equation_validation": validation,
             "simulation": {
-                "samples": 1000,
+                "samples": worlds.get("n_worlds", 0),
                 "outputs": {
                     "best_equation": selection.get("selected", {}).get("equation", ""),
                     "mode": intent_payload.get("mode"),
+                    "avg_pressure": worlds.get("avg_pressure"),
+                    "organ_damage_mean": worlds.get("avg_damage", {}),
                 },
+                "worlds_preview": worlds.get("worlds_preview", []),
                 "uncertainty": uncertainty,
             },
             "causal_graph": {
                 "nodes": ["impact", "rupture", "shockwave", "damage", "survival"],
                 "edges": [["impact", "rupture"], ["rupture", "shockwave"], ["shockwave", "damage"], ["damage", "survival"]],
             },
+            "causality_models": [
+                {
+                    "name": "classical_forward",
+                    "rule": "cause(t) < effect(t)",
+                    "status": "inconsistent_if_temporal_conflict" if any("temporal_conflict" in e.get("tags", []) for e in evolved.get("final_graph", {}).get("hyperedges", [])) else "consistent",
+                },
+                {
+                    "name": "retrocausal_fixed_point",
+                    "rule": "state_t = F(state_t, state_t+1)",
+                    "status": "candidate_solution",
+                },
+            ],
             "paradox": {
                 "enabled": intent_payload.get("mode") in {"PARADOX", "HYBRID_SIM_PARADOX"},
                 "constraints": paradox_constraints,
@@ -22754,7 +22981,7 @@ class SpeculativeFictionOrchestrator:
             },
             "explanation": {
                 "mode": explanation_mode,
-                "text": "Speculative fiction world-model + equation discovery pipeline tamamlandı.",
+                "text": "Hypergraph rewrite tabanlı emergent denklem + Bayes + multi-world + paradox pipeline tamamlandı.",
             },
         }
         return self.safety.sanitize(result)
