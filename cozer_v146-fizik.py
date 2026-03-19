@@ -6053,6 +6053,138 @@ class NumericSymbolicUnitNormalizer:
 _global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
 
 
+class EquationTransparencyModule:
+    """
+    Çözüm sürecinde kullanılan denklemleri kaynaklarından bağımsız biçimde toplar,
+    normalize eder ve semantik etiketler üretir.
+
+    Amaç: Arayüzde görünmeyen denklemler dahil, tüm denklem izini tek modülde
+    soru-bağımsız olarak görünür kılmak.
+    """
+
+    def __init__(self, normalizer: NumericSymbolicUnitNormalizer):
+        self.normalizer = normalizer
+
+    def _normalize_equation(self, text: str) -> str:
+        s = str(text or "")
+        s = s.replace("×", "*").replace("÷", "/").replace("−", "-")
+        s = re.sub(r"\s+", " ", s).strip()
+        s = re.sub(r"\s*=\s*", " = ", s)
+        s = re.sub(r"\s*\+\s*", " + ", s)
+        s = re.sub(r"\s*-\s*", " - ", s)
+        s = re.sub(r"\s*/\s*", " / ", s)
+        s = re.sub(r"\s*\*\s*", " * ", s)
+        s = re.sub(r"\s*\^\s*", "^", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return self.normalizer.normalize_numeric_text(s)
+
+    def _looks_like_equation(self, text: str) -> bool:
+        t = str(text or "").strip()
+        if len(t) < 3:
+            return False
+        has_symbol = bool(re.search(r"[=+\-*/^<>≤≥∑∏∫()\[\]|]", t))
+        has_math_token = bool(re.search(r"\d|[A-Za-zΑ-Ωα-ω]", t))
+        return has_symbol and has_math_token
+
+    def _semantic_tags(self, text: str) -> list:
+        t = (text or "").lower()
+        tags = []
+        patterns = {
+            "probability": r"\bp\s*\(|olasılık|probability|posterior|prior|likelihood",
+            "conditional": r"\|",
+            "bayes": r"bayes|posterior|prior|likelihood|evidence",
+            "matrix": r"\bmatrix\b|\[\[|\]\]|\bn\s*=\s*\(i\s*-\s*q\)\^\-?1|\bn\b\s*·\s*\b",
+            "differential": r"dy/dx|d/dt|∂|\bode\b|\bpde\b|differential",
+            "summation": r"∑|sigma|\bsum\b|Σ",
+            "product": r"∏|\bprod\b|Π",
+            "power": r"\^|\*\*",
+            "ratio": r"/",
+            "inequality": r"<=|>=|<|>|≤|≥",
+            "logic": r"\b(and|or|not|if|then|ve|veya|ise)\b|∀|∃|⇒|⟹",
+            "set": r"\bunion\b|\bintersect\b|\bsubset\b|∪|∩|⊂|∈",
+            "trigonometric": r"\bsin\b|\bcos\b|\btan\b",
+            "exponential": r"\bexp\b|e\^",
+            "logarithmic": r"\blog\b|ln\(",
+        }
+        for label, pat in patterns.items():
+            if re.search(pat, t):
+                tags.append(label)
+        if "=" in t:
+            tags.append("equality")
+        if re.search(r"\bmod\b|%", t):
+            tags.append("modular")
+        return sorted(set(tags))
+
+    def _walk_strings(self, node, path: str = "root") -> list:
+        rows = []
+        if isinstance(node, dict):
+            for k, v in node.items():
+                rows.extend(self._walk_strings(v, f"{path}.{k}"))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                rows.extend(self._walk_strings(v, f"{path}[{i}]"))
+        elif isinstance(node, str):
+            if self._looks_like_equation(node):
+                rows.append({"raw": node.strip(), "path": path})
+        return rows
+
+    def _collect_ui_visible(self, sol_data: dict) -> set:
+        visible = []
+        visible.append(str((sol_data or {}).get("formula", "") or ""))
+        for st in (sol_data or {}).get("steps", []) or []:
+            visible.append(str((st or {}).get("formula", "") or ""))
+        out = set()
+        for v in visible:
+            if self._looks_like_equation(v):
+                out.add(self._normalize_equation(v))
+        return out
+
+    def build_report(self, sol_data: dict, eq_ctx: dict | None = None, solver_ctx: dict | None = None) -> dict:
+        eq_ctx = eq_ctx or {}
+        solver_ctx = solver_ctx or {}
+
+        rows = []
+        rows.extend(self._walk_strings(sol_data or {}, path="sol_data"))
+        rows.extend(self._walk_strings(eq_ctx or {}, path="equation_context"))
+        rows.extend(self._walk_strings(solver_ctx or {}, path="solver_context"))
+
+        visible_norm = self._collect_ui_visible(sol_data or {})
+
+        merged = {}
+        for row in rows:
+            raw = row.get("raw", "")
+            if not self._looks_like_equation(raw):
+                continue
+            norm = self._normalize_equation(raw)
+            if not norm:
+                continue
+            if norm not in merged:
+                merged[norm] = {
+                    "equation": norm,
+                    "raw_samples": [],
+                    "semantic_tags": self._semantic_tags(norm),
+                    "sources": [],
+                    "shown_in_ui": norm in visible_norm,
+                }
+            if raw and raw not in merged[norm]["raw_samples"] and len(merged[norm]["raw_samples"]) < 3:
+                merged[norm]["raw_samples"].append(raw)
+            src = row.get("path", "")
+            if src and src not in merged[norm]["sources"]:
+                merged[norm]["sources"].append(src)
+
+        all_equations = sorted(merged.values(), key=lambda x: (0 if not x.get("shown_in_ui") else 1, x.get("equation", "")))
+        hidden = [e for e in all_equations if not e.get("shown_in_ui")]
+        return {
+            "total_count": len(all_equations),
+            "hidden_count": len(hidden),
+            "equations": all_equations,
+            "hidden_equations": hidden,
+        }
+
+
+_equation_transparency_module = EquationTransparencyModule(_global_num_unit_normalizer)
+
+
 class NonlinearProcessIntegrityController:
     """
     Non-lineer düşünme adımlarında süreç bütünlüğü denetimi:
@@ -16359,6 +16491,27 @@ body::after {
 }
 #pdf-dark-btn:hover { border-color:var(--green); color:var(--bg); background:var(--green); }
 #pdf-dark-btn:disabled { opacity:.4; cursor:not-allowed; }
+#equation-screen-btn {
+  background:transparent; color:var(--text3); border:1px solid var(--border);
+  border-radius:3px; padding:9px 16px; font-family:inherit; font-size:.75rem;
+  cursor:pointer; transition:border-color .15s, color .15s, background .15s;
+}
+#equation-screen-btn:hover { border-color:var(--cyan); color:var(--cyan); background:#00e5ff10; }
+#equation-screen-btn:disabled { opacity:.4; cursor:not-allowed; }
+.eq-screen-list {
+  max-height:56vh; overflow:auto; border:1px solid var(--border); border-radius:4px;
+  background:var(--bg3); padding:10px;
+}
+.eq-screen-item {
+  border:1px solid var(--border2); border-radius:4px; padding:8px; margin-bottom:8px;
+  background:#07120f;
+}
+.eq-screen-formula { color:var(--green2); font-size:.74rem; margin-bottom:6px; white-space:pre-wrap; word-break:break-word; }
+.eq-tag-wrap { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+.eq-tag { border:1px solid #1f6f3b; color:#8df8b6; font-size:.62rem; padding:1px 6px; border-radius:999px; background:#0e2a1b; }
+.eq-screen-meta { font-size:.62rem; color:var(--text3); }
+.eq-visibility-hidden { color:var(--orange); }
+.eq-visibility-ui { color:var(--cyan); }
 </style>
 </head>
 <body>
@@ -16437,6 +16590,7 @@ body::after {
           <button id="copy-btn"  @click="copyOutput">⎘ Kopyala</button>
           <button id="pdf-btn"   @click="downloadPdf('ascii')"  :disabled="!lastResult || isLoading" title="Açık temalı yapılandırılmış PDF">⬇ ASCII PDF</button>
           <button id="pdf-dark-btn" @click="downloadPdf('dark')" :disabled="!lastResult || isLoading" title="Karanlık terminal temalı LaTeX PDF">⬛ LaTeX PDF</button>
+          <button id="equation-screen-btn" @click="openEquationScreen" :disabled="!equationAudit.equations.length || isLoading" title="Normalize denklem ekranını aç">∑ Denklemler</button>
           <div id="model-tag">
             <div class="pulse-dot"></div>
             phi4:14b · localhost:11434
@@ -16553,6 +16707,41 @@ body::after {
     </div>
   </div>
 
+  <!-- ── DENKLEM ŞEFFAFLIK EKRANI ───────────────────────────────────────── -->
+  <div v-if="showEquationScreen"
+       class="modal-overlay"
+       @click.self="closeEquationScreen"
+       @keydown.esc.window="closeEquationScreen">
+    <div class="modal-box" style="width:900px;max-width:96vw;" @keydown.esc.stop="closeEquationScreen">
+      <div class="modal-title">Denklem Şeffaflık Ekranı</div>
+      <button class="modal-close" @click.stop="closeEquationScreen">✕</button>
+      <div style="font-size:.67rem;color:var(--text2);margin-bottom:10px;">
+        Toplam <b style="color:var(--green)">{{ equationAudit.total_count || 0 }}</b> denklem ·
+        Arayüzde görünmeyen <b style="color:var(--orange)">{{ equationAudit.hidden_count || 0 }}</b>
+      </div>
+      <div class="eq-screen-list">
+        <div v-if="!equationAudit.equations.length" style="font-size:.68rem;color:var(--text3);">
+          Henüz denklem verisi yok. Önce bir çözüm çalıştırın.
+        </div>
+        <div v-for="(eq, idx) in equationAudit.equations" :key="`${idx}-${eq.equation}`" class="eq-screen-item">
+          <div class="eq-screen-formula">{{ eq.equation }}</div>
+          <div class="eq-tag-wrap">
+            <span v-for="tag in (eq.semantic_tags || [])" :key="`${idx}-${tag}`" class="eq-tag">{{ tag }}</span>
+            <span class="eq-tag" :class="eq.shown_in_ui ? 'eq-visibility-ui' : 'eq-visibility-hidden'">
+              {{ eq.shown_in_ui ? 'arayüzde var' : 'gizli/arkaplan' }}
+            </span>
+          </div>
+          <div class="eq-screen-meta">
+            Kaynaklar: {{ (eq.sources || []).slice(0,6).join(' · ') || '—' }}
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" @click.stop="closeEquationScreen">Kapat</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /vue-app -->
 
 <!-- TOAST (Vue dışı, method ile yönetiliyor) -->
@@ -16582,6 +16771,8 @@ createApp({
       searchResult: null,
       graphData: null,
       graphImage: '',
+      showEquationScreen: false,
+      equationAudit: { total_count: 0, hidden_count: 0, equations: [] },
     };
   },
 
@@ -16680,6 +16871,7 @@ createApp({
         this.lastResult   = data;   // PDF için sakla
         this.graphData    = data.graph_data || null;
         this.graphImage   = data.graph_image || '';
+        this.equationAudit = data.equation_audit || { total_count: 0, hidden_count: 0, equations: [] };
         this.$nextTick(() => this.renderGraph(this.graphData, this.graphImage));
 
         // Stats güncelle
@@ -16721,6 +16913,8 @@ createApp({
       this.lastResult  = null;
       this.graphData   = null;
       this.graphImage  = '';
+      this.showEquationScreen = false;
+      this.equationAudit = { total_count: 0, hidden_count: 0, equations: [] };
       this.$nextTick(() => this.renderGraph(null, ''));
       this.stats       = { layout: '—', reward: '—', elapsed: '—', intent: '—', episode: this.stats.episode };
       ['st-route','st-reward','st-intent'].forEach(id => {
@@ -16757,6 +16951,18 @@ createApp({
         '║                                                                                  ║',
         '╚══════════════════════════════════════════════════════════════════════════════════╝',
       ].join('\n');
+    },
+
+    openEquationScreen() {
+      if (!this.equationAudit || !(this.equationAudit.equations || []).length) {
+        this.toast('⚠ Gösterilecek denklem bulunamadı', 'orange');
+        return;
+      }
+      this.showEquationScreen = true;
+    },
+
+    closeEquationScreen() {
+      this.showEquationScreen = false;
     },
 
     async fetchQState() {
@@ -19025,6 +19231,11 @@ def solve():
 
     # ── 8) Çözüm normalizasyonu (negatif/sayı-sembolik/birim) ───────────────
     sol_data = _global_num_unit_normalizer.normalize_solution_payload(sol_data)
+    equation_audit = _equation_transparency_module.build_report(
+        sol_data=sol_data,
+        eq_ctx=eq_ctx,
+        solver_ctx=solver_ctx,
+    )
 
     # ── 6. ASCII render ───────────────────────────────────────────────────────
     ascii_out = engine.render(layout, sol_data)
@@ -19087,6 +19298,7 @@ def solve():
             "graph_data": graph_payload,
             "graph_image": graph_image,
             "graph_warnings": graph_warnings,
+            "equation_audit": equation_audit,
             "graph_score": (
                 graph_payload.get("quality", {}).get("score")
                 if isinstance(graph_payload, dict)
