@@ -35,7 +35,7 @@ from collections import defaultdict, deque
 import pickle
 import copy
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from decimal import Decimal, getcontext, InvalidOperation
 import numpy as np
 import base64
@@ -22912,6 +22912,248 @@ class EquationValidationLoop:
         return {"results": results, "valid_rate": round(valid_rate, 4)}
 
 
+class HypergraphArchitectureHierarchy:
+    """Orkestratördeki modülleri katmanlı mimari hiyerarşide raporlar."""
+
+    def build(self, orchestrator: "SpeculativeFictionOrchestrator") -> Dict[str, Any]:
+        layers = [
+            {
+                "layer": "L1-intent-task",
+                "modules": [
+                    type(orchestrator.intent).__name__,
+                    type(orchestrator.task_graph).__name__,
+                ],
+            },
+            {
+                "layer": "L2-extraction-prior",
+                "modules": [
+                    type(orchestrator.extractor).__name__,
+                    type(orchestrator.latent).__name__,
+                    type(orchestrator.assigner).__name__,
+                    type(orchestrator.bayes_assumptions).__name__,
+                    type(orchestrator.assumptions).__name__,
+                    type(orchestrator.world).__name__,
+                ],
+            },
+            {
+                "layer": "L3-hypergraph-evolution",
+                "modules": [
+                    type(orchestrator.hypergraph).__name__,
+                    type(orchestrator.rewriter).__name__,
+                    type(orchestrator.evolution).__name__,
+                    type(orchestrator.eq_extract).__name__,
+                ],
+            },
+            {
+                "layer": "L4-relation-equation-inference",
+                "modules": [
+                    type(orchestrator.relations).__name__,
+                    type(orchestrator.eq_discovery).__name__,
+                    type(orchestrator.multi_h).__name__,
+                    type(orchestrator.model_select).__name__,
+                ],
+            },
+            {
+                "layer": "L5-validation-simulation",
+                "modules": [
+                    type(orchestrator.validation).__name__,
+                    type(orchestrator.multi_world).__name__,
+                    "NumericTruthValidator",
+                    "ArithmeticPrecisionValidator",
+                    "FormulaStructureParser",
+                ],
+            },
+            {
+                "layer": "L6-explanation-safety",
+                "modules": [
+                    type(orchestrator.explainer).__name__,
+                    type(orchestrator.mode_selector).__name__,
+                    type(orchestrator.uncertainty).__name__,
+                    type(orchestrator.safety).__name__,
+                ],
+            },
+        ]
+        return {"layers": layers, "layer_count": len(layers)}
+
+
+class HypergraphEquationConsistencyAuditor:
+    """
+    Hypergraph kaynaklı denklemler için:
+      - denklemler arası/sözdizimsel tutarlılık,
+      - değerlerin sabit/değişkenlerle uyumu,
+      - adımlar arası aritmetik doğruluk denetimi.
+    Tamamen mevcut genel modüller üzerinden çalışır; senaryo hard-coding yapmaz.
+    """
+
+    RES_TOL = Decimal("1e-8")
+
+    def __init__(self):
+        self.formula_parser = FormulaStructureParser()
+        self.num_validator = NumericTruthValidator()
+        self.precision_validator = ArithmeticPrecisionValidator()
+        self.normalizer = _global_num_unit_normalizer
+
+    def _sanitize_equation(self, eq: str) -> str:
+        if not eq:
+            return ""
+        txt = str(eq).replace("×", "*").replace("^", "**").replace("≈", "=")
+        txt = txt.split(",", 1)[0].strip()  # "x=..., alpha>0" => "x=..."
+        return txt
+
+    def _extract_symbols(self, expr: str) -> set:
+        if not expr:
+            return set()
+        # Türkçe karakterler dahil değişken benzeri tokenlar
+        tokens = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü_][A-Za-zÇĞİÖŞÜçğıöşü0-9_]*", expr)
+        blacklist = {
+            "sin", "cos", "tan", "exp", "log", "sqrt", "pi", "eps", "sigmoid",
+            "and", "or", "not", "true", "false", "p",
+        }
+        return {t for t in tokens if t.lower() not in blacklist}
+
+    def _to_sympy_env(self, values: Dict[str, Any]) -> Dict[str, Any]:
+        env = {"pi": sp.pi if _SYMPY_OK else math.pi}
+        for k, v in (values or {}).items():
+            if isinstance(v, (int, float, Decimal)):
+                env[k] = float(v)
+        return env
+
+    def _eval_expr(self, expr: str, env: Dict[str, Any]) -> Optional[Decimal]:
+        if not expr:
+            return None
+        if not _SYMPY_OK:
+            return None
+        try:
+            val = sp.N(sp.sympify(expr, locals=env, evaluate=True), 60)
+            if getattr(val, "is_real", False):
+                return Decimal(str(val))
+        except Exception:
+            return None
+        return None
+
+    def _reconcile_assignments(self, equations: List[Dict[str, Any]], assigned: Dict[str, Any]) -> Dict[str, Any]:
+        values = dict(assigned or {})
+        for _ in range(3):
+            changed = False
+            env = self._to_sympy_env(values)
+            for eq_item in equations:
+                eq = self._sanitize_equation(eq_item.get("equation", ""))
+                if "=" not in eq:
+                    continue
+                lhs, rhs = [p.strip() for p in eq.split("=", 1)]
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", lhs):
+                    continue
+                val = self._eval_expr(rhs, env)
+                if val is None:
+                    continue
+                fv = float(val)
+                old = values.get(lhs)
+                if old is None or abs(float(old) - fv) > 1e-10:
+                    values[lhs] = fv
+                    changed = True
+            if not changed:
+                break
+        return values
+
+    def audit(
+        self,
+        equations: List[Dict[str, Any]],
+        assigned: Dict[str, Any],
+        extracted: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        normalized_eqs = []
+        for i, eq in enumerate(equations or [], start=1):
+            txt = self._sanitize_equation(eq.get("equation", ""))
+            if txt:
+                normalized_eqs.append({"id": eq.get("id", f"EQ_{i}"), "equation": txt, "meta": eq})
+
+        reconciled_values = self._reconcile_assignments(normalized_eqs, assigned or {})
+        env = self._to_sympy_env(reconciled_values)
+
+        known_vars = set((assigned or {}).keys()) | set((extracted or {}).get("variables", []))
+        known_vars |= {"pi", "eps"}
+        equation_checks = []
+        arithmetic_steps = []
+        gaps = []
+
+        for idx, eq_item in enumerate(normalized_eqs, start=1):
+            eq = eq_item["equation"]
+            struct = self.formula_parser.parse(eq)
+            symbols = self._extract_symbols(eq)
+            unknown = sorted(s for s in symbols if s not in known_vars)
+            if unknown:
+                gaps.append(f"[GAP-VAR] {eq_item['id']} bilinmeyen semboller: {', '.join(unknown)}")
+
+            evaluable = False
+            consistent = True
+            residual = None
+
+            if "=" in eq and "~" not in eq:
+                lhs, rhs = [p.strip() for p in eq.split("=", 1)]
+                lhs_v = self._eval_expr(lhs, env)
+                rhs_v = self._eval_expr(rhs, env)
+                if lhs_v is not None and rhs_v is not None:
+                    evaluable = True
+                    residual = abs(lhs_v - rhs_v)
+                    consistent = residual <= self.RES_TOL
+                    arithmetic_steps.append({
+                        "step": idx,
+                        "formula": f"{lhs} - ({rhs})",
+                        "result": str(residual),
+                    })
+                else:
+                    gaps.append(f"[GAP-EVAL] {eq_item['id']} sayısal değerlendirilemedi: {eq}")
+
+            equation_checks.append({
+                "id": eq_item["id"],
+                "equation": eq,
+                "structure": {
+                    "top_level_op": struct.get("top_level_op"),
+                    "has_conditional": struct.get("has_conditional"),
+                    "branch_count": struct.get("branch_count"),
+                },
+                "symbols": sorted(symbols),
+                "unknown_symbols": unknown,
+                "evaluable": evaluable,
+                "consistent": bool(consistent),
+                "residual": str(residual) if residual is not None else None,
+            })
+
+        corrected_steps, precision_violations, precision_notes = self.precision_validator.enforce(arithmetic_steps)
+
+        synthetic_sol = {
+            "answer": " ".join(s.get("result", "") for s in corrected_steps),
+            "numeric": " ".join(s.get("result", "") for s in corrected_steps),
+            "steps": corrected_steps,
+        }
+        numeric_violations = self.num_validator.validate(synthetic_sol, None)
+
+        eval_count = sum(1 for c in equation_checks if c.get("evaluable"))
+        eval_ok = sum(1 for c in equation_checks if c.get("evaluable") and c.get("consistent"))
+        eq_accuracy = float(eval_ok / eval_count) if eval_count else 1.0
+        var_accuracy = 1.0 if not gaps else max(0.0, 1.0 - (len([g for g in gaps if g.startswith("[GAP-VAR]")]) / max(1, len(equation_checks))))
+        arithmetic_accuracy = 1.0 if not precision_violations else 0.0
+        numeric_accuracy = 1.0 if not numeric_violations else 0.0
+
+        overall_accuracy = round(float(eq_accuracy * var_accuracy * arithmetic_accuracy * numeric_accuracy), 6)
+
+        return {
+            "reconciled_values": self.normalizer.normalize_solution_payload({"data": reconciled_values}).get("data", reconciled_values),
+            "equation_checks": equation_checks,
+            "arithmetic_steps": corrected_steps,
+            "accuracy": {
+                "equation": round(eq_accuracy, 6),
+                "variable_binding": round(var_accuracy, 6),
+                "arithmetic": round(arithmetic_accuracy, 6),
+                "numeric_bounds": round(numeric_accuracy, 6),
+                "overall": overall_accuracy,
+            },
+            "violations": precision_violations + numeric_violations,
+            "notes": precision_notes,
+            "gaps": gaps,
+        }
+
+
 class ConstraintBuilder:
     def build(self, text: str) -> List[str]:
         clauses = [c.strip() for c in re.split(r"[.;\n]+", text or "") if c.strip()]
@@ -23005,6 +23247,8 @@ class SpeculativeFictionOrchestrator:
         self.model_select = BayesianModelSelection()
         self.explainer = EquationGroundedExplainer()
         self.validation = EquationValidationLoop()
+        self.architecture = HypergraphArchitectureHierarchy()
+        self.consistency_auditor = HypergraphEquationConsistencyAuditor()
         self.constraint_builder = ConstraintBuilder()
         self.paradox_injector = ParadoxInjector()
         self.self_trap = SelfTrapLoop()
@@ -23032,6 +23276,8 @@ class SpeculativeFictionOrchestrator:
         hypotheses = self.multi_h.generate(equations)
         selection = self.model_select.select(hypotheses)
         validation = self.validation.validate(hypotheses)
+        architecture = self.architecture.build(self)
+        consistency_audit = self.consistency_auditor.audit(equations, assigned, extracted)
         worlds = self.multi_world.sample(assigned, n_worlds=160)
 
         constraints = self.constraint_builder.build(prompt)
@@ -23087,6 +23333,8 @@ class SpeculativeFictionOrchestrator:
             "selected_model": selection.get("selected", {}),
             "model_ranking": selection.get("ranked", []),
             "equation_validation": validation,
+            "architecture_hierarchy": architecture,
+            "consistency_audit": consistency_audit,
             "simulation": {
                 "samples": worlds.get("n_worlds", 0),
                 "outputs": {
@@ -23094,6 +23342,7 @@ class SpeculativeFictionOrchestrator:
                     "mode": intent_payload.get("mode"),
                     "avg_pressure": worlds.get("avg_pressure"),
                     "organ_damage_mean": worlds.get("avg_damage", {}),
+                    "consistency_accuracy": consistency_audit.get("accuracy", {}).get("overall", 0.0),
                 },
                 "worlds_preview": worlds.get("worlds_preview", []),
                 "uncertainty": uncertainty,
