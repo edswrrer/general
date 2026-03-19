@@ -18993,7 +18993,6 @@ def solve():
         "dense_reward": dense_reward,
         "route_depth": route_decision.get("search_depth", "normal"),
         "integrated_reasoning": integrated_summary,
-        "process_integrity": integrity_report,
     }
     sol_data = _response_generator.finalize(sol_data, confidence, learning_ctx)
 
