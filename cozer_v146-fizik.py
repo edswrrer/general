@@ -6035,6 +6035,183 @@ class NumericSymbolicUnitNormalizer:
 
 _global_num_unit_normalizer = NumericSymbolicUnitNormalizer(precision=8)
 
+
+class NonlinearProcessIntegrityController:
+    """
+    Non-lineer düşünme adımlarında süreç bütünlüğü denetimi:
+      - formül yazım normalizasyonu
+      - adımlar arası birim tutarlılığı
+      - sabit/değişken geçişlerinin izlenmesi
+    İsteğe göre (config) alt denetimleri aç/kapatabilir.
+    """
+
+    def __init__(self, normalizer: NumericSymbolicUnitNormalizer):
+        self.normalizer = normalizer
+
+    def _normalize_formula_syntax(self, formula: str) -> str:
+        s = str(formula or "")
+        s = s.replace("×", "*").replace("÷", "/").replace("−", "-")
+        s = s.replace("\\[", "").replace("\\]", "").replace("$$", "")
+        s = re.sub(r"\s+", " ", s).strip()
+        s = re.sub(r"\s*=\s*", " = ", s)
+        s = re.sub(r"\s*\+\s*", " + ", s)
+        s = re.sub(r"\s*-\s*", " - ", s)
+        s = re.sub(r"\s*/\s*", " / ", s)
+        s = re.sub(r"\s*\*\s*", " * ", s)
+        s = re.sub(r"\s*\^\s*", "^", s)
+        return re.sub(r"\s+", " ", s).strip()
+
+    def _extract_formula_candidates(self, text: str) -> list:
+        txt = str(text or "")
+        cands = []
+        for m in re.finditer(r"\\\[(.+?)\\\]", txt, flags=re.DOTALL):
+            cands.append(m.group(1).strip())
+        for m in re.finditer(r"\$\$(.+?)\$\$", txt, flags=re.DOTALL):
+            cands.append(m.group(1).strip())
+        for m in re.finditer(r"([A-Za-z_][^.\n]{0,80}=[^.\n]{1,80})", txt):
+            cands.append(m.group(1).strip())
+        uniq, seen = [], set()
+        for c in cands:
+            n = self._normalize_formula_syntax(c)
+            if n and n not in seen:
+                seen.add(n)
+                uniq.append(n)
+        return uniq[:5]
+
+    def _compact_title(self, step: dict, index: int) -> str:
+        title = str(step.get("title", "") or "").strip()
+        if title and len(title) <= 72 and not re.search(r"advanced .*çöz", title, re.IGNORECASE):
+            return title
+        base = str(step.get("content", "") or step.get("formula", "") or "").strip()
+        tokens = [t for t in re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü0-9_]+", base.lower()) if len(t) > 2]
+        topic = " ".join(tokens[:6]).strip() or "işlem"
+        return f"Adım {index}: {topic[:56]}"
+
+    def enrich_with_reasoning(self, sol_data: dict, reasoning_raw: dict | None = None) -> dict:
+        out = dict(sol_data or {})
+        steps = [dict(s) for s in (out.get("steps", []) or [])]
+        raw = reasoning_raw or {}
+        model = raw.get("selected_model", {}) if isinstance(raw, dict) else {}
+        hypotheses = raw.get("hypotheses", []) if isinstance(raw, dict) else []
+
+        eq_pool = []
+        if model.get("equation"):
+            eq_pool.append(str(model.get("equation")))
+        for h in hypotheses[:3]:
+            if isinstance(h, dict) and h.get("equation"):
+                eq_pool.append(str(h.get("equation")))
+        eq_pool = [self._normalize_formula_syntax(e) for e in eq_pool if str(e).strip()]
+        eq_pool = list(dict.fromkeys(eq_pool))
+
+        if eq_pool:
+            synth_formula = " + ".join(eq_pool[:2]) if len(eq_pool) > 1 else eq_pool[0]
+            synth_step = {
+                "title": "Denklem Sentezi",
+                "content": "Keşfedilen denklemler birleştirilerek sentez modeli üretildi.",
+                "formula": synth_formula,
+                "result": "Sentez denklemi normalize edildi.",
+                "_generated_step": True,
+            }
+            # yalnız aynı formül zaten yoksa ekle
+            existing_formulas = {self._normalize_formula_syntax(s.get("formula", "")) for s in steps}
+            if self._normalize_formula_syntax(synth_formula) not in existing_formulas:
+                steps.append(synth_step)
+
+        out["steps"] = steps
+        return out
+
+    def _extract_assignments(self, text: str) -> list:
+        """
+        x=5, v = 12 m/s, alpha := 0.3 biçimlerinden atama yakalar.
+        """
+        hits = []
+        for m in re.finditer(
+            r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)\s*([-+]?\d+(?:\.\d+)?)\s*([A-Za-zµΩ°/*^\-0-9]*)",
+            str(text or ""),
+        ):
+            var = m.group(1)
+            val = float(m.group(2))
+            unit_raw = (m.group(3) or "").strip()
+            unit_sig = self.normalizer.unit_signature(unit_raw) if unit_raw else ""
+            hits.append({"var": var, "value": val, "unit": unit_sig, "raw_unit": unit_raw})
+        return hits
+
+    def audit(self, sol_data: dict, control: dict | None = None) -> dict:
+        cfg = {
+            "enable_formula_normalization": True,
+            "enable_unit_consistency": True,
+            "enable_constant_variable_consistency": True,
+            "strict_mode": False,
+        }
+        cfg.update(control or {})
+
+        out = dict(sol_data or {})
+        steps = []
+        violations = []
+        notes = []
+        symbol_state = {}
+        unit_state = {}
+
+        for i, st in enumerate(out.get("steps", []) or []):
+            ss = dict(st or {})
+            ss["title"] = self._compact_title(ss, i + 1)
+            formula = str(ss.get("formula", ""))
+            result = str(ss.get("result", ""))
+            content = str(ss.get("content", ""))
+
+            if cfg.get("enable_formula_normalization", True) and formula:
+                norm_formula = self._normalize_formula_syntax(formula)
+                norm_formula = self.normalizer.normalize_numeric_text(norm_formula)
+                if norm_formula != formula:
+                    notes.append(f"[FORMULA-NORM] step={i+1}")
+                ss["formula"] = norm_formula
+            if not ss.get("formula"):
+                extracted = self._extract_formula_candidates(" ".join([content, result]))
+                if extracted:
+                    ss["formula"] = extracted[0]
+                    notes.append(f"[FORMULA-EXTRACT] step={i+1}")
+
+            text_bundle = " | ".join([formula, result, content])
+            assigns = self._extract_assignments(text_bundle)
+            for a in assigns:
+                v = a["var"]
+                prev = symbol_state.get(v)
+                if cfg.get("enable_constant_variable_consistency", True):
+                    if prev is not None:
+                        delta = abs(float(prev["value"]) - float(a["value"]))
+                        ref = max(1.0, abs(float(prev["value"])))
+                        tol = 0.05 if not cfg.get("strict_mode") else 0.01
+                        if delta / ref > tol:
+                            violations.append(
+                                f"[CONST-VAR-DRIFT] step={i+1} {v}: {prev['value']} -> {a['value']}"
+                            )
+                symbol_state[v] = a
+
+                if cfg.get("enable_unit_consistency", True) and a["unit"]:
+                    prev_u = unit_state.get(v)
+                    if prev_u and prev_u != a["unit"]:
+                        violations.append(
+                            f"[UNIT-MISMATCH] step={i+1} {v}: {prev_u} -> {a['unit']}"
+                        )
+                    unit_state[v] = a["unit"]
+
+            step_units = []
+            for key in ("formula", "result", "content"):
+                step_units.extend(self.normalizer.annotate_units(ss.get(key, "")))
+            if step_units:
+                ss["_unit_signatures"] = list(dict.fromkeys(step_units))
+
+            steps.append(ss)
+
+        out["steps"] = steps
+        summary = {
+            "checked_steps": len(steps),
+            "violation_count": len(violations),
+            "note_count": len(notes),
+            "strict_mode": bool(cfg.get("strict_mode", False)),
+        }
+        return {"sol_data": out, "violations": violations, "notes": notes, "summary": summary, "config": cfg}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ARITHMETIC PRECISION VALIDATOR — Tüm aritmetik adımlar için yüksek doğruluk
 #  Amaç: eksi/mertebe hatalarını otomatik düzeltmek, içsel tutarsızlıkları yakalamak
@@ -15940,6 +16117,7 @@ _meta_learner = MetaLearningEngine()
 _thinking_loop_engine = ThinkingLoopBackpropEngine(PersistentLearningMemory())
 _knowledge_base_updater = KnowledgeBaseUpdater()
 _response_generator = ResponseGenerator()
+_nonlinear_integrity_controller = NonlinearProcessIntegrityController(_global_num_unit_normalizer)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -18567,8 +18745,9 @@ def _build_planner_steps(sub_questions: list, route_features: dict, question: st
 
 @app.route("/solve", methods=["POST"])
 def solve():
-    data = request.get_json()
+    data = request.get_json() or {}
     question = data.get("question", "").strip()
+    process_control = data.get("process_control", {}) if isinstance(data, dict) else {}
     if not question:
         return jsonify({"error": "Soru boş olamaz"}), 400
 
@@ -18656,6 +18835,15 @@ def solve():
             "Soru metni çoklu-alt-soru planlayıcısı ile ayrıştırıldı; yinelenen adımlar ayıklandı.",
         )
 
+    # ── 4.5) Non-lineer süreç bütünlüğü: birim/sabit-değişken/formül kontrolü ─
+    integrity_report = _nonlinear_integrity_controller.audit(sol_data, control=process_control)
+    sol_data = integrity_report.get("sol_data", sol_data)
+    if integrity_report.get("violations"):
+        sol_data.setdefault("_consistency_violations", [])
+        sol_data["_consistency_violations"].extend(integrity_report["violations"])
+    if integrity_report.get("notes"):
+        sol_data["_process_integrity_notes"] = integrity_report["notes"]
+
     # ── 5) DOĞRULAMA: Multi-Layer Validator ───────────────────────────────────
     step_verification = _step_verifier.verify(sol_data.get("steps") or [], constraint_graph)
     if step_verification.get("violations"):
@@ -18665,6 +18853,28 @@ def solve():
     if extra_violations:
         sol_data.setdefault("_consistency_violations", [])
         sol_data["_consistency_violations"].extend(extra_violations)
+
+    # ── 5.5) Bağımsız Bayes+Senaryo+Paradoks+Denklem hattını solve'a entegre et ─
+    integrated_reasoning = _integrated_reasoning_bridge.run(question)
+    integrated_summary = integrated_reasoning.get("summary", {})
+    if integrated_reasoning.get("ok"):
+        solver_ctx["_integrated_reasoning"] = integrated_summary
+        # Denklem/sentez/theorem benzeri çıktıları adımlara taşı ve normalize et
+        sol_data = _nonlinear_integrity_controller.enrich_with_reasoning(
+            sol_data, integrated_reasoning.get("raw", {})
+        )
+        post_enrich_integrity = _nonlinear_integrity_controller.audit(sol_data, control=process_control)
+        sol_data = post_enrich_integrity.get("sol_data", sol_data)
+        if post_enrich_integrity.get("violations"):
+            sol_data.setdefault("_consistency_violations", [])
+            sol_data["_consistency_violations"].extend(post_enrich_integrity["violations"])
+        if post_enrich_integrity.get("notes"):
+            sol_data.setdefault("_process_integrity_notes", [])
+            sol_data["_process_integrity_notes"].extend(post_enrich_integrity["notes"])
+        integrity_report = post_enrich_integrity
+        step_verification = _step_verifier.verify(sol_data.get("steps") or [], constraint_graph)
+    else:
+        solver_ctx["_integrated_reasoning_error"] = integrated_reasoning.get("error", "unknown")
 
     # ── 3.6. ★ CausalBayesOrchestrator — Nedensel zincir + inanılırlık analizi
     # Dört modül: PropositionalCredibilityEngine, CausalChainInferencer,
@@ -18729,6 +18939,7 @@ def solve():
     solver_ctx["_prompt_constraints"] = prompt_constraints
     solver_ctx["_meta_prediction"] = meta_prediction
     solver_ctx["_step_verification"] = step_verification
+    solver_ctx["_process_integrity"] = integrity_report.get("summary", {})
 
     # ── Açıklamayı NLP tabanlı mantıksal-sayısal-olasılıksal vektörle zenginleştir ──
     sol_data = _explanation_enricher.enrich(question, sol_data, signals, causal_ctx)
@@ -18745,6 +18956,15 @@ def solve():
 
     # ── 6) ÖĞRENME ÇEKİRDEĞİ: reward + replay + posterior/meta update ────────
     consistency_score = sol_data.get("_consistency_score", 1.0)
+    if integrated_summary:
+        # Hard threshold yerine sürekli ağırlık: mode güveni arttıkça etkisi artar.
+        spec_weight = 0.10 + 0.20 * float(integrated_summary.get("mode_confidence", 0.0))
+        spec_acc = float(integrated_summary.get("consistency_accuracy", 0.0))
+        consistency_score = round(
+            max(0.0, min(1.0, (1.0 - spec_weight) * float(consistency_score) + spec_weight * spec_acc)),
+            4,
+        )
+        sol_data["_consistency_score"] = consistency_score
     _planner_memory.feedback(
         sub_questions=sub_questions,
         consistency_score=consistency_score,
@@ -18755,6 +18975,12 @@ def solve():
             {"solver": solver_ctx.get("chosen_solver", "LLM"), "answer": sol_data.get("answer", ""), "confidence": consistency_score, "weight": 1.0},
             {"solver": solver_ctx.get("routed_solver", "LLM"), "answer": sol_data.get("answer", ""), "confidence": meta_prediction.get("value", 0.5), "weight": 0.7},
             {"solver": "thinking_loop", "answer": sol_data.get("answer", ""), "confidence": thinking_loop_ctx.get("critic", {}).get("score", 0.5), "weight": 0.5},
+            {
+                "solver": "speculative_equation_pipeline",
+                "answer": integrated_summary.get("equation", "") or sol_data.get("answer", ""),
+                "confidence": integrated_summary.get("consistency_accuracy", 0.0),
+                "weight": 0.4 + 0.4 * float(integrated_summary.get("mode_confidence", 0.0)),
+            },
         ]
     )
     causal_inference = _causal_inference_engine.analyze(consensus.get("matrix", []), question)
@@ -18846,6 +19072,8 @@ def solve():
         "counterfactual": cf_report,
         "dense_reward": dense_reward,
         "route_depth": route_decision.get("search_depth", "normal"),
+        "integrated_reasoning": integrated_summary,
+        "process_integrity": integrity_report,
     }
     sol_data = _response_generator.finalize(sol_data, confidence, learning_ctx)
 
@@ -18905,6 +19133,7 @@ def solve():
             "deep_representation": deep_repr,
             "thinking_loop": thinking_loop_ctx,
             "knowledge_context": knowledge_ctx,
+            "process_integrity": integrity_report.get("summary", {}),
             # PDF için ek alanlar
             "question": question,
             "steps": sol_data.get("steps", []),
@@ -23932,6 +24161,63 @@ class SpeculativeFictionOrchestrator:
 
 
 _speculative_fiction_orchestrator = SpeculativeFictionOrchestrator()
+
+
+class IntegratedReasoningBridge:
+    """
+    /solve hattına Bayes+Senaryo Fiziği+Paradoks+Denklem keşfi çıktılarını
+    bağımsız endpoint'e bağlı kalmadan entegre eder.
+    Hard-coded rota yerine intent/mode çıktısına göre özet sinyal üretir.
+    """
+
+    def __init__(self, orchestrator: SpeculativeFictionOrchestrator):
+        self.orchestrator = orchestrator
+
+    def run(self, prompt: str) -> Dict[str, Any]:
+        try:
+            raw = self.orchestrator.run(prompt)
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "summary": {
+                    "mode": "SOLVE",
+                    "mode_confidence": 0.0,
+                    "equation": "",
+                    "paradox_enabled": False,
+                    "paradox_depth": 0,
+                    "uncertainty_entropy": 0.0,
+                    "consistency_accuracy": 0.0,
+                    "simulation_signal": 0.0,
+                },
+            }
+
+        selected = (raw.get("selected_model") or {})
+        sim = (raw.get("simulation") or {})
+        sim_out = (sim.get("outputs") or {})
+        paradox = (raw.get("paradox") or {})
+        self_trap = (paradox.get("self_trap") or {})
+        mode = ((raw.get("intent") or {}).get("mode") or "SOLVE")
+        mode_conf = float(((raw.get("intent") or {}).get("confidence") or 0.0))
+        consistency_accuracy = float(sim_out.get("consistency_accuracy") or 0.0)
+        uncertainty_entropy = float((sim.get("uncertainty") or {}).get("entropy") or 0.0)
+        pressure = float(sim_out.get("avg_pressure") or 0.0)
+
+        summary = {
+            "mode": mode,
+            "mode_confidence": round(max(0.0, min(1.0, mode_conf)), 4),
+            "equation": str(selected.get("equation") or ""),
+            "paradox_enabled": bool(paradox.get("enabled", False)),
+            "paradox_depth": int(self_trap.get("depth", 0) or 0),
+            "uncertainty_entropy": round(max(0.0, uncertainty_entropy), 6),
+            "consistency_accuracy": round(max(0.0, min(1.0, consistency_accuracy)), 6),
+            "simulation_signal": round(min(1.0, max(0.0, math.tanh(abs(pressure) / 10.0))), 6),
+        }
+
+        return {"ok": True, "raw": raw, "summary": summary}
+
+
+_integrated_reasoning_bridge = IntegratedReasoningBridge(_speculative_fiction_orchestrator)
 
 
 @app.route('/speculative/process', methods=['POST'])
