@@ -8263,39 +8263,6 @@ class PersistentLearningMemory:
         self.save()
 
 
-class VisualizationIsolationFilter:
-    """
-    Öğrenme yolunu görselleştirme sinyallerinden arındırır.
-    Amaç: dış deep-learning güncellemeleri graph/matplotlib alanlarından etkilenmesin.
-    """
-
-    VISUAL_KEY_PATTERN = re.compile(
-        r"(graph|plot|chart|matplotlib|image|figure|render|canvas)", re.IGNORECASE
-    )
-
-    def sanitize_for_learning(self, payload):
-        return self._strip_visual_fields(copy.deepcopy(payload))
-
-    def graph_snapshot(self, payload):
-        snap = copy.deepcopy(payload or {})
-        if isinstance(snap, dict):
-            snap.pop("_thinking_loop", None)
-            snap.pop("_learning_ctx", None)
-        return snap
-
-    def _strip_visual_fields(self, obj):
-        if isinstance(obj, dict):
-            out = {}
-            for k, v in obj.items():
-                if self.VISUAL_KEY_PATTERN.search(str(k)):
-                    continue
-                out[k] = self._strip_visual_fields(v)
-            return out
-        if isinstance(obj, list):
-            return [self._strip_visual_fields(x) for x in obj]
-        return obj
-
-
 class LatentThoughtEncoder:
     """LTE: soru + bağlamdan gizli düşünce vektörü üretir."""
 
@@ -8417,7 +8384,6 @@ class ThinkingLoopBackpropEngine:
 
     def __init__(self, memory: PersistentLearningMemory | None = None):
         self.memory = memory or PersistentLearningMemory()
-        self.visual_filter = VisualizationIsolationFilter()
         self.lte = LatentThoughtEncoder()
         self.ral = ReasonAbstractionLayer()
         self.rnlt = NaturalLanguageThoughtDecoder()
@@ -8425,12 +8391,11 @@ class ThinkingLoopBackpropEngine:
         self.loss_fn = MultiObjectiveLoss(self.memory.state.get("module_weights", {}))
 
     def run_cycle(self, question: str, signals: dict, sol_data: dict, solver_ctx: dict | None = None) -> dict:
-        safe_sol_data = self.visual_filter.sanitize_for_learning(sol_data or {})
         z_thought = self.lte.encode(question, {"signals": signals, "solver": solver_ctx or {}})
-        steps = safe_sol_data.get("steps", []) if isinstance(safe_sol_data, dict) else []
+        steps = sol_data.get("steps", []) if isinstance(sol_data, dict) else []
         abstraction = self.ral.abstract(steps)
         explanation = self.rnlt.decode(z_thought, steps, abstraction)
-        answer = str((safe_sol_data or {}).get("answer", "")).strip()
+        answer = str((sol_data or {}).get("answer", "")).strip()
         critic_result = self.critic.score(explanation, steps, answer)
 
         rewritten = False
@@ -15491,7 +15456,6 @@ _multilayer_validator = MultiLayerValidator()
 _reward_replay = RewardReplayMemory(maxlen=1024)
 _bayes_posterior_updater = BayesianPosteriorUpdater()
 _meta_learner = MetaLearningEngine()
-_viz_isolation_filter = VisualizationIsolationFilter()
 _thinking_loop_engine = ThinkingLoopBackpropEngine(PersistentLearningMemory())
 _knowledge_base_updater = KnowledgeBaseUpdater()
 _response_generator = ResponseGenerator()
@@ -18336,9 +18300,8 @@ def solve():
     graph_image = None
     graph_warnings = []
     try:
-        graph_input = _viz_isolation_filter.graph_snapshot(sol_data)
         graph_payload = _build_graph_automaton_payload(
-            question, graph_input, affect_learning=False
+            question, sol_data, affect_learning=False
         )
         graph_image = _render_matplotlib_graph_base64(graph_payload)
         if isinstance(graph_payload, dict):
