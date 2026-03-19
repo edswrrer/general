@@ -738,5 +738,505 @@
     "id": 140,
     "cat": "🧠 Mekansal Düşünme",
     "q": "5 düğüm ağırlıklı kenarlar: minimum spanning tree toplam ağırlık?"
+  },
+  {
+    "id": 141,
+    "cat": "🕵️ Dedektiflik / Bayes",
+    "q": "Dört şüpheli (A,B,C,D) için önsel suç olasılıkları sırasıyla 0.32, 0.28, 0.25, 0.15. Üç bağımsız olmayan kanıt var: parmak izi, kamera gölgesi, telefon sinyali. P(E|A)=0.90, P(E|B)=0.55, P(E|C)=0.35, P(E|D)=0.20; ancak kamera kanıtı parmak izine ρ=0.4 korelasyonlu. Copula-benzeri düzeltmeyle posteriorları hesapla ve en olası faili sırala."
+  },
+  {
+    "id": 142,
+    "cat": "🕵️ Dedektiflik / Zaman Paradoksu",
+    "q": "Cinayet 22:10'da, alarm kaydı 22:14'te, tanık patlamayı 22:08'de duyduğunu söylüyor. Olayları hypergraph düğümleriyle kur: (ses, patlama, elektrik kesintisi, ölüm, alarm). İki nedensellik modeli üret (klasik/retrocausal) ve çelişkiyi minimize eden modeli seç."
+  },
+  {
+    "id": 143,
+    "cat": "💥 Patlama Simülasyonu",
+    "q": "Kapalı bir hangarda 18 kg eşdeğer TNT patlaması varsay. Basınç dalgasını P(r)=kE/(r^2+eps) ve yansıma katsayısı ile simüle et; 12 sensörün gecikmeli ölçümlerinden gerçek patlama zamanını ve merkez koordinatını Bayesian inversion ile bul."
+  },
+  {
+    "id": 144,
+    "cat": "💥 Patlama Simülasyonu / Çoklu Dünya",
+    "q": "Aynı olay için üç dünya hipotezi var: (H1) yakıt tankı patlaması, (H2) dış şok dalgası, (H3) elektrik arkı. Her hipotezde enerji ve gecikme priors ver: E~LogUniform, delay~Normal. Monte Carlo (en az 50k örnek) ile hasar dağılımı ve posterior model seçimi yap."
+  },
+  {
+    "id": 145,
+    "cat": "✈️ Havacılık Adli Analiz",
+    "q": "Uçak havada parçalanıyor ama ana patlama izi çarpışmadan sonra görünüyor. Olayları event::E1..E6 olarak hypergraph'ta temsil et, TEMP_ORDER kenarlarını çıkar, rewrite ile delta_t_obs ve t_effect denklemlerini keşfet ve en iyi 2 modeli posterior ile raporla."
+  },
+  {
+    "id": 146,
+    "cat": "🌌 Astrofizik",
+    "q": "İki nötron yıldızı birleşmesinde gözlenen gravite dalgası sinyali ile gama patlaması arasında 1.74s gecikme var. Ölçüm hatası ±0.12s. Kaynağın mesafesi ve jet açısına bağlı gecikme modelinde MCMC ile posterior dağılımı tahmin et."
+  },
+  {
+    "id": 147,
+    "cat": "🧬 Biyoinformatik",
+    "q": "Bir tümörde 5 sürücü mutasyonun nedensel sırasını tek hücreli veriden çıkar. DAG kısıtları, yanlış pozitif/negatif oranları ve klonal karışım parametreleri ile Bayesian structure learning yap; en olası 3 evrim yolunu ver."
+  },
+  {
+    "id": 148,
+    "cat": "🏦 Finansal Risk",
+    "q": "12 varlıklı portföy için kuyruk bağımlılığını (t-copula) kullanarak 10 günlük %99 CVaR hesapla. Rejim değişimi (sakin/kriz) Markov-switching ile modellensin ve posterior rejim olasılıklarını raporla."
+  },
+  {
+    "id": 149,
+    "cat": "⚙️ Endüstriyel Arıza Teşhisi",
+    "q": "Bir türbin sisteminde sensörler çelişkili akış gösteriyor: sıcaklık artarken titreşim düşüyor, fakat akustik anomali yükseliyor. Causal hypergraph kur, latent değişken olarak yatak sürtünmesi ekle, equation discovery ile en az 3 aday denklemi üret."
+  },
+  {
+    "id": 150,
+    "cat": "🚢 Denizcilik",
+    "q": "AIS sinyali kaybolan bir gemi için son 30 dakikalık rota, rüzgar ve akıntı verisinden parçalanma/kaçırılma/cihaz arızası hipotezlerini Bayes faktörüyle karşılaştır."
+  },
+  {
+    "id": 151,
+    "cat": "🛰️ Uydu Dinamiği",
+    "q": "LEO uydusunda beklenmeyen yörünge sapması gözleniyor. Güneş radyasyon basıncı, mikro-çarpışma ve itki sızıntısı hipotezleri için diferansiyel denklem tabanlı model kur; Kalman + particle filtre hibritiyle posterioru güncelle."
+  },
+  {
+    "id": 152,
+    "cat": "🌋 Jeofizik",
+    "q": "Bir volkan öncesi mikro-sismik sinyallerde ters zamanlı patern görülüyor. Olayları zaman-hiperkenarlarıyla kodla; klasik tetiklenme zinciri ve geri-beslemeli modelin açıklama gücünü WAIC ile kıyasla."
+  },
+  {
+    "id": 153,
+    "cat": "🏙️ Akıllı Şehir",
+    "q": "Deprem sonrası 20 sensörün asenkron veri akışından bina hasar öncelik listesi üret. Çok hedefli optimizasyon (can kaybı riski + erişim süresi + ekip kapasitesi) yap ve Pareto cephesini çıkar."
+  },
+  {
+    "id": 154,
+    "cat": "🚑 Acil Lojistik",
+    "q": "5 hastane, 14 ambulans, değişken trafik matrisi altında 2 saatlik talep simülasyonu yap. Queueing + RL tabanlı yönlendirme ile bekleme süresini minimize et; politika kararlılığını raporla."
+  },
+  {
+    "id": 155,
+    "cat": "🧠 Nörobilim",
+    "q": "EEG'de gözlenen pre-ictal desenlerin nöbetten sonra oluşmuş gibi etiketlendiği çelişkili bir veri seti var. Label-delay latent değişkeniyle zaman paradoksunu çözen model kur ve doğruluk/kalibrasyon metriği ver."
+  },
+  {
+    "id": 156,
+    "cat": "🧪 Kimyasal Kinetik",
+    "q": "A→B→C reaksiyon ağında sensörler B'nin pikini C'den sonra ölçüyor. Ölçüm gecikmesini modelleyip gerçek hız sabitlerini çıkar; identifiability analizi yap."
+  },
+  {
+    "id": 157,
+    "cat": "🔋 Enerji Şebekesi",
+    "q": "Şebekede ani frekans düşümü sonrası bazı PMU'lar olayı 300ms önce rapor ediyor. Senkronizasyon hatası + gerçek arıza hipotezlerini birleştiren Bayesian state-space model kur."
+  },
+  {
+    "id": 158,
+    "cat": "🚆 Demiryolu",
+    "q": "İki trenin frenleme telemetrisi çelişkili: biri çarpışmadan önce durduğunu, diğeri sonra hızlandığını gösteriyor. Hypergraph ile olay sıralamasını çıkar ve sahte veri enjeksiyonu ihtimalini değerlendir."
+  },
+  {
+    "id": 159,
+    "cat": "🧭 Otonom Araç",
+    "q": "LiDAR ve kamera aynı yaya için farklı zaman damgası üretiyor. Sensor-fusion gecikme denklemi keşfet, collision-risk posteriorunu hesapla, güvenli politika öner."
+  },
+  {
+    "id": 160,
+    "cat": "📡 Haberleşme",
+    "q": "5G baz istasyonunda paket gecikmeleri patlama anında düşüyor gibi görünüyor. Queue model + zaman damgası kaymasıyla açıklayan iki model kur ve Bayes faktörü hesapla."
+  },
+  {
+    "id": 161,
+    "cat": "🧮 Sayısal Yöntem",
+    "q": "Stiff ODE sisteminde adaptif adım seçimi yaparken olay tetikleyici ters sıralama üretiyor. Event-detection algoritmasını doğrula, hata sınırlarını türet ve düzeltme öner."
+  },
+  {
+    "id": 162,
+    "cat": "🕸️ Siber Güvenlik",
+    "q": "Ağ saldırısında loglar komut enjeksiyonunun sonuçtan sonra çalıştığını gösteriyor. Log-temporal paradox için hypergraph tabanlı saldırı zinciri rekonstrüksiyonu yap."
+  },
+  {
+    "id": 163,
+    "cat": "📦 Tedarik Zinciri",
+    "q": "Liman patlaması sonrası konteyner akışında 4 günlük gecikme var ancak fatura kayıtları negatif gecikme gösteriyor. Veri uzlaştırma + latent değişkenlerle gerçek akışı tahmin et."
+  },
+  {
+    "id": 164,
+    "cat": "🌧️ İklim Modelleme",
+    "q": "Ani yağış olayında radar, istasyon ve uydu ölçümleri farklı zaman piki veriyor. Data assimilation ile birleşik yağış alanı ve belirsizlik haritası çıkar."
+  },
+  {
+    "id": 165,
+    "cat": "🧱 Yapısal Mühendislik",
+    "q": "Çok katlı binada kat-ivme kayıtları üst katın önce çöktüğünü ima ediyor. Damping ve ölçüm faz kayması içeren modelle gerçek çökme sırasını çöz."
+  },
+  {
+    "id": 166,
+    "cat": "🛰️ Uzay Görevi Planlama",
+    "q": "Mars iniş modülünde sensör gecikmesi nedeniyle paraşüt açılımı çarpışmadan sonra tetiklenmiş görünüyor. Paradox çözümü için iki nedensel model kur ve güven skoru ver."
+  },
+  {
+    "id": 167,
+    "cat": "🦠 Epidemiyoloji",
+    "q": "Salgın verisinde bulaşanların semptomu enfekte ettiklerinden sonra başlamış görünüyor. Reporting-delay latent katmanı ile Rt tahmini yap."
+  },
+  {
+    "id": 168,
+    "cat": "🏭 Üretim Hattı",
+    "q": "6 istasyonlu hatta kalite hatası 3. istasyondan kaynaklanıyor gibi, ama ölçüm 5. istasyonda önce beliriyor. Causal discovery + backtracking ile kök nedeni bul."
+  },
+  {
+    "id": 169,
+    "cat": "🏛️ Arkeometri",
+    "q": "Karbon tarihlemesiyle çelişen iki tabaka var: üst katman daha eski görünüyor. Bayesian age-depth model kur, karışım/sürüklenme etkisini değerlendir."
+  },
+  {
+    "id": 170,
+    "cat": "🔬 Parçacık Fiziği",
+    "q": "Dedektörde olay tetikleyici sinyalin parçacık izinden sonra geldiğini gözlüyorsun. Trigger jitter modellemesiyle gerçek olay zamanını tahmin et."
+  },
+  {
+    "id": 171,
+    "cat": "🧊 Kriyojenik Sistem",
+    "q": "Sıcaklık sensörü düşüşü vana kapanmadan önce raporluyor. Termal atalet + sensör offset denklemlerini keşfet ve arıza olasılığını hesapla."
+  },
+  {
+    "id": 172,
+    "cat": "🌊 Tsunami Erken Uyarı",
+    "q": "Şamandıra ve kıyı istasyonları dalga varışını çelişkili ölçüyor. Çok kaynaklı Bayes güncellemesiyle gerçek varış dağılımı üret."
+  },
+  {
+    "id": 173,
+    "cat": "🏥 Klinik Karar",
+    "q": "Yoğun bakımda 8 biyobelirteçten sepsis alarmı çıkar; ancak bazı belirteçler müdahaleden sonra yükselmiş görünüyor. Counterfactual model ile tedavi etkisini ayır."
+  },
+  {
+    "id": 174,
+    "cat": "🎯 Balistik Analiz",
+    "q": "Mermi izi ve ses kaydı zamanlama olarak uyumsuz. Rüzgar, sekme ve mikrofon gecikmesi parametreleriyle olay rekonstrüksiyonu yap."
+  },
+  {
+    "id": 175,
+    "cat": "🛢️ Petrol Rezervuar",
+    "q": "Basınç düşümü kuyuda üretim artışından önce gözleniyor. Çok-fazlı akış denklemleriyle gecikme-paradoksu açıkla ve parametre kalibrasyonu yap."
+  },
+  {
+    "id": 176,
+    "cat": "🧯 Yangın Dinamiği",
+    "q": "Yangın duman dedektöründe üst kat alarmı alt kattan önce düşüyor. Konveksiyon + sensör gecikme modeli kur, en olası çıkış noktasını bul."
+  },
+  {
+    "id": 177,
+    "cat": "🏁 Motor Sporları",
+    "q": "Telemetride pit-stop sonrası hız artışı pit'e girmeden önce başlıyor görünüyor. Zaman damgası düzeltmesi ve aerodinamik model ile tutarlılık kontrolü yap."
+  },
+  {
+    "id": 178,
+    "cat": "🏗️ İnşaat Güvenliği",
+    "q": "Vinç devrilmesinde yük sensörü maksimumu devrilmeden sonra kaydediyor. Ölçüm tampon gecikmesi + dinamik moment modeli oluştur."
+  },
+  {
+    "id": 179,
+    "cat": "🛰️ GNSS Aldatma",
+    "q": "Drone GNSS spoofing şüphesi: konum sıçraması fiziksel ivme sınırlarını ihlal etmiyor gibi görünüyor. HMM + spoofing latent state ile tespit yap."
+  },
+  {
+    "id": 180,
+    "cat": "🧵 Adli Ses Analizi",
+    "q": "İki mikrofon kanalında patlama sesi farklı sırada geliyor. Kaynak lokalizasyonu ve saat kaymasını birlikte optimize et."
+  },
+  {
+    "id": 181,
+    "cat": "🎥 Görüntü Adli",
+    "q": "Kamera karelerinde cam kırılması alevden önce görünüyor. Rolling-shutter etkisiyle olay sırası düzeltmesini hesapla."
+  },
+  {
+    "id": 182,
+    "cat": "🚀 Roket Telemetrisi",
+    "q": "Ayrılma mekanizması telemetride motor kesiminden sonra tetiklenmiş gibi. Packet-loss ve yeniden iletim etkileriyle gerçek sıralama rekonstrüksiyonu yap."
+  },
+  {
+    "id": 183,
+    "cat": "🪐 Çoklu Evren Simülasyonu",
+    "q": "Aynı fizik olayını 4 farklı metrik-zaman modelinde simüle et. Her modelin açıklama posterioru ve model karmaşıklık cezasını hesapla."
+  },
+  {
+    "id": 184,
+    "cat": "🧠 RL Router",
+    "q": "Q-learning router 6 görev tipinde yanlış solver seçiyor. Ödül fonksiyonunu belirsizlik duyarlı yeniden tasarla; 10k episode sonrası politika değişimini raporla."
+  },
+  {
+    "id": 185,
+    "cat": "📚 Bilim Tarihi Dedektifliği",
+    "q": "Üç farklı kaynak aynı deneyin tarihini çelişkili veriyor. Kaynak güvenilirlik latent değişkenleriyle tarih posterioru üret."
+  },
+  {
+    "id": 186,
+    "cat": "🧪 Laboratuvar Kalibrasyon",
+    "q": "Kalibrasyon gazı enjekte edilmeden önce sensör plato yapıyor. Baseline drift + boru gecikmesi modelini kur, gerçek LOD değerini hesapla."
+  },
+  {
+    "id": 187,
+    "cat": "🚨 Afet Erken Uyarı",
+    "q": "Siren tetikleme logu deprem dalgasından önce görünüyor. Saat senkronizasyon ağacı çıkar ve gerçek tetikleme doğrulaması yap."
+  },
+  {
+    "id": 188,
+    "cat": "🏦 AML Analitiği",
+    "q": "Finansal işlem ağında para transferi geri-dönüş döngüsü kendi kendini fonluyor gibi. Hypergraph tabanlı laundering pattern çıkar ve risk posterioru hesapla."
+  },
+  {
+    "id": 189,
+    "cat": "🛰️ Radar Takip",
+    "q": "Hipersonik hedefde radar ölçümü manevra sonrası değil önce sapıyor. Manevra latent zamanı ve sensör filtre gecikmesini birlikte tahmin et."
+  },
+  {
+    "id": 190,
+    "cat": "📈 Ekonometri",
+    "q": "Piyasa şokunun fiyatlara etkisi haberden önce görünüyor. Lead-lag, sızıntı ve beklenti kanallarını içeren yapısal VAR kur."
+  },
+  {
+    "id": 191,
+    "cat": "🧫 Protein Katlanma",
+    "q": "Bir ara konformasyonun nihai yapıdan sonra ortaya çıktığı gözleniyor. Hidden-state model ile katlanma yolunu ve geçiş hızlarını çıkar."
+  },
+  {
+    "id": 192,
+    "cat": "🏭 SCADA",
+    "q": "SCADA loglarında vana kapanışı basınç düşümünden sonra kaydedilmiş. PLC scan-cycle gecikmesini modelleyip olay sırası düzelt."
+  },
+  {
+    "id": 193,
+    "cat": "🚴 Spor Bilimi",
+    "q": "Bisikletçi performansında laktat artışı yük düşüşünden sonra pik yapıyor. Delay-differential modelle eşik gücü tahmini yap."
+  },
+  {
+    "id": 194,
+    "cat": "🏜️ Jeo-uzamsal",
+    "q": "Çöl fırtınasında 9 istasyonun PM ölçümleri farklı fazlarda. Spatio-temporal Gaussian process ile kaynak lokasyonunu bul."
+  },
+  {
+    "id": 195,
+    "cat": "🛫 Hava Trafik",
+    "q": "İki uçak için ADS-B ve radar izi uyuşmuyor; ayrım ihlali patlamadan sonra raporlanmış görünüyor. Birleşik takip modeli ile gerçek yakın geçiş zamanını hesapla."
+  },
+  {
+    "id": 196,
+    "cat": "🧬 Adli Genetik",
+    "q": "DNA karışım profilinde ikincil katkıcı ana katkıcıdan önce amplifiye olmuş görünüyor. Stochastic PCR modeli ile contributor posteriorları hesapla."
+  },
+  {
+    "id": 197,
+    "cat": "🧲 Füzyon Reaktörü",
+    "q": "Plazma instabilitesi manyetik sensörde deşarjdan sonra artıyor gibi. Sensör transfer fonksiyonu ve gerçek MHD olay sırasını çıkar."
+  },
+  {
+    "id": 198,
+    "cat": "🌪️ Fırtına İzleme",
+    "q": "Doppler radar ve yer istasyonu rüzgar dönüşünü ters sırada kaydetti. Vortex oluşum zamanını particle smoother ile tahmin et."
+  },
+  {
+    "id": 199,
+    "cat": "⚖️ Hukuki Delil Ağı",
+    "q": "Mahkeme dosyasında olay, delil ve tanık ifadeleri çelişkili zaman çizgisi veriyor. Hypergraph + contradiction loop ile hangi delillerin çıkarılması gerektiğini öner."
+  },
+  {
+    "id": 200,
+    "cat": "📦 Robotik Depo",
+    "q": "AMR robotları görevleri tamamlamadan önce stok düşmüş görünüyor. Inventory lag ve scanning delay ile kök sebep analizi yap."
+  },
+  {
+    "id": 201,
+    "cat": "🧭 Denizaltı Akustiği",
+    "q": "Sonar yankısı hedef hareketinden önce pik yapıyor. Çok yol yayılımı ve su sütunu profilini kullanarak doğru menzil tahmini yap."
+  },
+  {
+    "id": 202,
+    "cat": "🧯 Patlayıcı Artık Analizi",
+    "q": "Patlama sonrası toplanan kimyasal izler iki farklı tetikleyiciye işaret ediyor. Mixture model ile tekil/çoklu kaynak olasılıklarını karşılaştır."
+  },
+  {
+    "id": 203,
+    "cat": "📡 IoT Güvenilirlik",
+    "q": "Akıllı bina sensör ağında paketler ters zaman sıralı geliyor. Clock drift düzeltmesi sonrası olay nedenselliğini yeniden kur."
+  },
+  {
+    "id": 204,
+    "cat": "🚜 Tarım Teknolojisi",
+    "q": "Sulama sistemi logları: nem artışı vana açılmadan önce görünüyor. Toprak difüzyon modeli + ölçüm gecikmesiyle açıklama üret."
+  },
+  {
+    "id": 205,
+    "cat": "🎮 Oyun Analitiği",
+    "q": "Çevrimiçi oyunda hasar kaydı mermi çıkışından önce işleniyor. Sunucu-tick ve istemci latency modelini kalibre et."
+  },
+  {
+    "id": 206,
+    "cat": "🏥 Radyoloji İş Akışı",
+    "q": "Kontrast madde enjeksiyonu sonrası görüntüde enhancement enjeksiyondan önce başlamış görünüyor. Pipeline timestamp düzeltmesi yap."
+  },
+  {
+    "id": 207,
+    "cat": "🛰️ Deep Space",
+    "q": "Derin uzay sondasında komut-onay sinyali ışık hızını aşıyor gibi. Relay yolunu hypergraph ile modelleyip gecikme bütçesini çıkar."
+  },
+  {
+    "id": 208,
+    "cat": "📊 Deney Tasarımı",
+    "q": "Faktöriyel deneyde etki terimi ana etkiden önce etkinleşmiş gibi gözleniyor. Alias yapısını çöz ve doğru model formülünü keşfet."
+  },
+  {
+    "id": 209,
+    "cat": "🪫 Batarya Teşhisi",
+    "q": "Hücre gerilimi düşüşü akım darbesinden önce kaydediliyor. Ölçüm filtre gecikmesi ve iç direnç modelini birlikte kestir."
+  },
+  {
+    "id": 210,
+    "cat": "🕵️ Kriminal Ağ Analizi",
+    "q": "Suç ağında emir-komuta mesajı eylemden sonra geliyor. Gizli aracı düğüm hipotezini test et ve ağdaki kritik kesim noktalarını bul."
+  },
+  {
+    "id": 211,
+    "cat": "💹 Kripto Piyasa",
+    "q": "Futures likidasyon zinciri spot çöküşten önce görünüyor. Cross-market lead-lag + liquidation cascade modeli kur."
+  },
+  {
+    "id": 212,
+    "cat": "🚧 Trafik Güvenliği",
+    "q": "Kavşakta çarpışma videosunda fren lambası çarpışmadan sonra yanıyor. Frame interpolation ve ECU log korelasyonu ile gerçek fren anını tahmin et."
+  },
+  {
+    "id": 213,
+    "cat": "🛰️ SAR Görüntüleme",
+    "q": "Sentinel SAR geçişinde yer kayması sinyali depremden önce beliriyor. Atmosferik gecikme düzeltmesi ve phase unwrapping ile yeniden analiz et."
+  },
+  {
+    "id": 214,
+    "cat": "📚 NLP Nedensellik",
+    "q": "Uzun metinde olaylar anlamsal olarak ileri giderken zaman zarfları geri gidiyor. Olay çıkarımıyla nedensel hypergraph kur ve çelişki halkalarını işaretle."
+  },
+  {
+    "id": 215,
+    "cat": "🪖 Savunma Simülasyonu",
+    "q": "Çoklu sensör füzyonunda hedef imhası, ateş emrinden önce raporlanıyor. Haberleşme zinciri gecikme modelini çözüp güvenilir karar kuralı üret."
+  },
+  {
+    "id": 216,
+    "cat": "🧯 Endüstriyel Güvenlik",
+    "q": "Kimya tesisinde basınç valfi açılması reaktör sıcaklık zirvesinden sonra kaydedilmiş. Dinamik denge denklemi + log düzeltmesiyle olay nedenini açıkla."
+  },
+  {
+    "id": 217,
+    "cat": "🧑‍⚕️ Sağlık Ekonomisi",
+    "q": "Bir tedavinin maliyet etkisi uygulamadan önce düşmüş görünüyor. Difference-in-differences + anticipation effect modeli kur."
+  },
+  {
+    "id": 218,
+    "cat": "🛰️ Formasyon Uçuşu",
+    "q": "Üç küçük uydu formasyonunda göreli mesafe güncellemesi manevradan önce kayıyor. EKF tuning ve zaman senkronizasyonu ile stabilite analizi yap."
+  },
+  {
+    "id": 219,
+    "cat": "🌉 Köprü İzleme",
+    "q": "Strain sensörleri yük geçişinden önce pik gösteriyor. Sensör histerezisi ve sıcaklık drift terimlerini denklem keşfiyle çıkar."
+  },
+  {
+    "id": 220,
+    "cat": "🧱 Malzeme Bilimi",
+    "q": "Çatlak ilerleme verisi yük çevriminden sonra hızlanıyor gibi. Paris law parametrelerini ölçüm gecikmesiyle birlikte tahmin et."
+  },
+  {
+    "id": 221,
+    "cat": "🚀 Hipersonik Akış",
+    "q": "Şok ayrılması video karelerinde kontrol yüzeyi hareketinden önce oluşuyor. CFD-surrogate + timestamp correction ile nedenselliği test et."
+  },
+  {
+    "id": 222,
+    "cat": "🛰️ Görev Kritik Yazılım",
+    "q": "Fault-tolerant loglarda rollback olayları commit'ten önce görünüyor. Event-sourcing zaman çizgisi doğrulaması ve invariant kontrolü yap."
+  },
+  {
+    "id": 223,
+    "cat": "🧮 Kombinatorik Zorlama",
+    "q": "20 düğümlü hipergraph'ta 6 tür kısıt var. Tüm tutarlı atamaları SAT+MCMC ile say ve en yüksek posteriorlu çözümü raporla."
+  },
+  {
+    "id": 224,
+    "cat": "🎲 Olasılık / Büyük Sapmalar",
+    "q": "Nadir olay simülasyonunda gözlenen patlama eşiği teorik eşiğin önünde. Importance sampling ile kuyruk olasılığını 1e-9 hassasiyetle tahmin et."
+  },
+  {
+    "id": 225,
+    "cat": "🧠 Bilişsel Model",
+    "q": "Tanık ifadelerinde neden-sonuç sırası ters. Bellek bozunumu ve yanlış zaman damgası modelleyerek olay sırasının posteriorunu çıkar."
+  },
+  {
+    "id": 226,
+    "cat": "🛰️ Atmosfer Girişi",
+    "q": "Yeniden giriş aracında ısı akısı zirvesi maksimum hızdan önce görünüyor. Ablasyon parametreleri ve sensör gecikmesiyle ters çözüm yap."
+  },
+  {
+    "id": 227,
+    "cat": "🚁 İHA Sürü",
+    "q": "8 İHA'nın çarpışma kaçınma logları çelişkili. Çok ajanlı oyun kuramı + Bayes ile gerçek lider-izleyici ilişkilerini tahmin et."
+  },
+  {
+    "id": 228,
+    "cat": "📉 Anomali Tespiti",
+    "q": "Yüksek boyutlu zaman serisinde alarm reset'ten önce tetikleniyor. CUSUM + değişim noktası modeliyle sahte alarm oranını düşür."
+  },
+  {
+    "id": 229,
+    "cat": "🧪 Spektrometri",
+    "q": "Pik dekonvolüsyonunda ürün piki reaktan pikinden önce gözüküyor. Instrument response fonksiyonunu öğrenip gerçek kinetiği çıkar."
+  },
+  {
+    "id": 230,
+    "cat": "🏭 Dijital İkiz",
+    "q": "Fabrika dijital ikizinde simülasyon gerçek dünyadan 2s önde akıyor. Senkronizasyon için adaptif zaman warp modeli tasarla."
+  },
+  {
+    "id": 231,
+    "cat": "📡 Uzaktan Algılama",
+    "q": "Orman yangını başlangıcı termal bantta optikten önce değil sonra görünüyor. Çok bantlı füzyon ve bulut maskesiyle başlangıç zamanını tahmin et."
+  },
+  {
+    "id": 232,
+    "cat": "🧯 Patlama Sonrası Yapı",
+    "q": "Patlama sonrası kolon hasar haritasında en uzak kolon en ağır hasarlı. Yansıma/odaklanma etkisi içeren dalga modelini kalibre et."
+  },
+  {
+    "id": 233,
+    "cat": "🕵️ Dijital Forensik",
+    "q": "Sunucu loglarında veri silme komutu yedek geri yüklemeden sonra görünüyor. Clock tampering hipotezini test et ve güvenilir zaman çizelgesi oluştur."
+  },
+  {
+    "id": 234,
+    "cat": "⚛️ Kuantum Esinli",
+    "q": "İki olayın sırası ölçüm bazına bağlı değişiyor. Klasik ve kuantum-esinli nedensellik modellerini karşılaştırıp hangi veri rejiminde üstün olduklarını belirt."
+  },
+  {
+    "id": 235,
+    "cat": "🎯 Karar Teorisi",
+    "q": "Riskli kurtarma operasyonunda 4 seçenek için utility ve ölüm riski dağılımı veriliyor. Bayesian decision engine ile beklenen faydayı maksimize et."
+  },
+  {
+    "id": 236,
+    "cat": "🧠 Meta-Çelişki",
+    "q": "Sistem kendi açıklamasını çürüten iki denklem üretiyor: A→B, B→¬A. Self-trap loop'u 5 derinlikte çalıştır, sabit nokta olup olmadığını kontrol et."
+  },
+  {
+    "id": 237,
+    "cat": "📚 Hypergraph Benchmark",
+    "q": "Verilen anlatıda en az 12 olay düğümü, 8 temporal hiperkenar ve 3 paradoks döngüsü üret; ardından equation discovery ile 5 aday denklem çıkarıp doğrulama oranını hesapla."
+  },
+  {
+    "id": 238,
+    "cat": "🛩️ Son Test / Uçak Paradoksu",
+    "q": "Bir uçak düşmeden önce havada parçalanıyor; patlama etkisi çarpışmadan sonra gözleniyor. Hypergraph + rewrite + Bayesian model selection + paradox loop zincirini eksiksiz çalıştır; iki rakip nedensellik modeli ve bağlı açıklamayı üret."
+  },
+  {
+    "id": 239,
+    "cat": "🧭 Navigasyon / Çoklu Sensör",
+    "q": "INS, GNSS ve görsel odometri farklı zaman damgası veriyor; araç köprü altında iken konum sıçraması oluşuyor. Factor-graph ile zamansal hizalama yapıp doğru yolu çıkar."
+  },
+  {
+    "id": 240,
+    "cat": "🧯 Reaktif Süreç Güvenliği",
+    "q": "Reaktörde ekzotermik runaway olayı sıcaklık sensöründe geç görünürken basınçta erken görünüyor. Coupled ODE + sensör gecikmesi ile kaçış zamanını tahmin et."
   }
 ]
