@@ -33,11 +33,13 @@ from flask import Flask, request, jsonify, make_response, send_file
 import requests, json, math, re, random, time, itertools, os, io, subprocess, tempfile, datetime
 from collections import defaultdict, deque
 import pickle
+import copy
 from dataclasses import dataclass
 from typing import Optional
 from decimal import Decimal, getcontext, InvalidOperation
 import numpy as np
 import base64
+import platform
 
 try:
     import matplotlib
@@ -107,6 +109,54 @@ ASCII_WIDTH = 82
 
 # ── Web İstihbaratı Pipeline'ı global olarak initialize et ──────────────────
 web_intelligence_pipeline = None
+
+
+def configure_linux_cpu_threads(target_threads: int = 24) -> dict:
+    """
+    Linux ortamında CPU tabanlı iş parçacığı sayılarını tek yerden ayarlar.
+    Amaç: BLAS/OpenMP/Torch tarafında CPU işlemlerini 24 thread'e hizalamak.
+    """
+    applied = {
+        "platform": platform.system().lower(),
+        "target_threads": int(target_threads),
+        "env": {},
+        "torch": {"set_num_threads": False, "set_num_interop_threads": False},
+    }
+
+    if applied["platform"] != "linux":
+        return applied
+
+    n = str(int(target_threads))
+    env_keys = [
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "OMP_THREAD_LIMIT",
+    ]
+    for k in env_keys:
+        os.environ[k] = n
+        applied["env"][k] = n
+
+    # PyTorch thread havuzları (varsa)
+    if _TORCH_OK:
+        try:
+            torch.set_num_threads(int(target_threads))
+            applied["torch"]["set_num_threads"] = True
+        except Exception:
+            pass
+        try:
+            torch.set_num_interop_threads(int(target_threads))
+            applied["torch"]["set_num_interop_threads"] = True
+        except Exception:
+            pass
+
+    return applied
+
+
+CPU_THREAD_CONFIG = configure_linux_cpu_threads(24)
 
 
 def init_web_intelligence():
@@ -8163,6 +8213,254 @@ class DeepRepresentationEncoder:
         }
 
 
+class PersistentLearningMemory:
+    """Thinking-loop öğrenmesini diskte tutar (program yeniden açıldığında devam eder)."""
+
+    def __init__(self, path: str = "thinking_loop_memory.pkl"):
+        self.path = path
+        self.state = {
+            "episodes": 0,
+            "avg_loss": 0.0,
+            "critic_history": [],
+            "rewrite_count": 0,
+            "module_weights": {
+                "answer": 0.4,
+                "explanation": 0.3,
+                "faithfulness": 0.2,
+                "critic": 0.1,
+            },
+        }
+        self._load()
+
+    def _load(self):
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, "rb") as f:
+                    payload = pickle.load(f)
+                if isinstance(payload, dict):
+                    self.state.update(payload)
+        except Exception:
+            pass
+
+    def save(self):
+        try:
+            with open(self.path, "wb") as f:
+                pickle.dump(self.state, f)
+        except Exception:
+            pass
+
+    def update(self, loss: float, critic_score: float, rewritten: bool):
+        eps = int(self.state.get("episodes", 0)) + 1
+        prev_avg = float(self.state.get("avg_loss", 0.0))
+        new_avg = ((prev_avg * (eps - 1)) + float(loss)) / max(eps, 1)
+        hist = list(self.state.get("critic_history", []))
+        hist.append(round(float(critic_score), 4))
+        self.state["episodes"] = eps
+        self.state["avg_loss"] = round(new_avg, 6)
+        self.state["critic_history"] = hist[-128:]
+        if rewritten:
+            self.state["rewrite_count"] = int(self.state.get("rewrite_count", 0)) + 1
+        self.save()
+
+
+class VisualizationIsolationFilter:
+    """
+    Öğrenme yolunu görselleştirme sinyallerinden arındırır.
+    Amaç: dış deep-learning güncellemeleri graph/matplotlib alanlarından etkilenmesin.
+    """
+
+    VISUAL_KEY_PATTERN = re.compile(
+        r"(graph|plot|chart|matplotlib|image|figure|render|canvas)", re.IGNORECASE
+    )
+
+    def sanitize_for_learning(self, payload):
+        return self._strip_visual_fields(copy.deepcopy(payload))
+
+    def graph_snapshot(self, payload):
+        snap = copy.deepcopy(payload or {})
+        if isinstance(snap, dict):
+            snap.pop("_thinking_loop", None)
+            snap.pop("_learning_ctx", None)
+        return snap
+
+    def _strip_visual_fields(self, obj):
+        if isinstance(obj, dict):
+            out = {}
+            for k, v in obj.items():
+                if self.VISUAL_KEY_PATTERN.search(str(k)):
+                    continue
+                out[k] = self._strip_visual_fields(v)
+            return out
+        if isinstance(obj, list):
+            return [self._strip_visual_fields(x) for x in obj]
+        return obj
+
+
+class LatentThoughtEncoder:
+    """LTE: soru + bağlamdan gizli düşünce vektörü üretir."""
+
+    def encode(self, question: str, context: dict) -> list[float]:
+        txt = f"{question}|{json.dumps(context or {}, default=str, ensure_ascii=False)}"
+        vals = [((ord(ch) % 97) / 97.0) for ch in txt[:256]] or [0.0]
+        vec = np.array(vals, dtype=float)
+        chunks = 8
+        pad = (-len(vec)) % chunks
+        if pad:
+            vec = np.pad(vec, (0, pad), mode="constant")
+        z = vec.reshape(chunks, -1).mean(axis=1)
+        norm = float(np.linalg.norm(z)) or 1.0
+        z = z / norm
+        return [round(float(v), 6) for v in z.tolist()]
+
+
+class ReasonAbstractionLayer:
+    """Çözüm adımlarını kavramsal izlere dönüştürür."""
+
+    def abstract(self, steps: list) -> dict:
+        labels = []
+        for st in steps or []:
+            txt = (
+                f"{st.get('title','')} {st.get('content','')} {st.get('formula','')}"
+                if isinstance(st, dict)
+                else str(st)
+            ).lower()
+            if any(k in txt for k in ("olas", "bayes", "prob")):
+                labels.append("probabilistic_reasoning")
+            if any(k in txt for k in ("matris", "markov", "geçiş")):
+                labels.append("state_transition_reasoning")
+            if any(k in txt for k in ("topla", "çıkar", "hesap", "=")):
+                labels.append("symbolic_arithmetic")
+        uniq = sorted(set(labels)) or ["general_reasoning"]
+        return {"reason_tags": uniq, "reason_depth": len(steps or [])}
+
+
+class NaturalLanguageThoughtDecoder:
+    """RNLT: latent thought + adımlardan açıklama metni üretir."""
+
+    def decode(self, z_thought: list[float], steps: list, abstraction: dict) -> str:
+        depth = abstraction.get("reason_depth", 0)
+        tags = ", ".join(abstraction.get("reason_tags", [])[:4])
+        step_hint = ""
+        if steps:
+            first = steps[0] if isinstance(steps[0], dict) else {"title": str(steps[0])}
+            step_hint = str(first.get("title", "") or first.get("content", ""))[:90]
+        latent_focus = round(sum(abs(float(v)) for v in z_thought) / max(len(z_thought), 1), 4)
+        return (
+            f"Düşünce özeti: {depth} adımlı çözüm, odak={latent_focus}. "
+            f"Akıl yürütme etiketleri: {tags}. "
+            f"Başlangıç adımı: {step_hint or 'genel ayrıştırma'}. "
+            "Bu açıklama, çözüm adımlarıyla hizalı olacak şekilde üretildi."
+        )
+
+
+class ExplanationCritic:
+    """Öz-yansıtma döngüsü: açıklamayı puanlar, düşükse yeniden yazım ister."""
+
+    def score(self, explanation: str, steps: list, answer: str) -> dict:
+        text = (explanation or "").strip().lower()
+        step_tokens = []
+        for st in steps or []:
+            if isinstance(st, dict):
+                step_tokens.extend(re.findall(r"\w+", f"{st.get('title','')} {st.get('content','')}".lower()))
+            else:
+                step_tokens.extend(re.findall(r"\w+", str(st).lower()))
+        step_tokens = set(t for t in step_tokens if len(t) >= 4)
+        exp_tokens = set(re.findall(r"\w+", text))
+        overlap = len(step_tokens & exp_tokens) / max(len(step_tokens), 1)
+        clarity = min(1.0, len(text) / 220.0)
+        faithfulness = 1.0 if str(answer).strip() and str(answer).lower() in text else 0.65
+        hallucination_risk = max(0.0, 1.0 - overlap)
+        score = 0.35 * clarity + 0.4 * overlap + 0.25 * faithfulness
+        needs_rewrite = score < 0.62
+        return {
+            "score": round(float(score), 4),
+            "clarity": round(float(clarity), 4),
+            "step_alignment": round(float(overlap), 4),
+            "faithfulness": round(float(faithfulness), 4),
+            "hallucination_risk": round(float(hallucination_risk), 4),
+            "needs_rewrite": needs_rewrite,
+        }
+
+
+class MultiObjectiveLoss:
+    """L_total = λ1*L_answer + λ2*L_explanation + λ3*L_faithfulness + λ4*L_critic."""
+
+    def __init__(self, weights: dict | None = None):
+        w = weights or {}
+        self.w_answer = float(w.get("answer", 0.4))
+        self.w_explanation = float(w.get("explanation", 0.3))
+        self.w_faithfulness = float(w.get("faithfulness", 0.2))
+        self.w_critic = float(w.get("critic", 0.1))
+
+    def compute(self, answer_ok: float, critic: dict) -> dict:
+        l_answer = 1.0 - float(answer_ok)
+        l_explanation = 1.0 - float(critic.get("clarity", 0.0))
+        l_faith = 1.0 - float(critic.get("faithfulness", 0.0))
+        l_critic = 1.0 - float(critic.get("score", 0.0))
+        total = (
+            self.w_answer * l_answer
+            + self.w_explanation * l_explanation
+            + self.w_faithfulness * l_faith
+            + self.w_critic * l_critic
+        )
+        return {
+            "L_answer": round(l_answer, 6),
+            "L_explanation": round(l_explanation, 6),
+            "L_faithfulness": round(l_faith, 6),
+            "L_critic": round(l_critic, 6),
+            "L_total": round(float(total), 6),
+        }
+
+
+class ThinkingLoopBackpropEngine:
+    """MD mimarisindeki LTE + RNLT + Critic + Multi-loss + kalıcı öğrenme katmanı."""
+
+    def __init__(self, memory: PersistentLearningMemory | None = None):
+        self.memory = memory or PersistentLearningMemory()
+        self.visual_filter = VisualizationIsolationFilter()
+        self.lte = LatentThoughtEncoder()
+        self.ral = ReasonAbstractionLayer()
+        self.rnlt = NaturalLanguageThoughtDecoder()
+        self.critic = ExplanationCritic()
+        self.loss_fn = MultiObjectiveLoss(self.memory.state.get("module_weights", {}))
+
+    def run_cycle(self, question: str, signals: dict, sol_data: dict, solver_ctx: dict | None = None) -> dict:
+        safe_sol_data = self.visual_filter.sanitize_for_learning(sol_data or {})
+        z_thought = self.lte.encode(question, {"signals": signals, "solver": solver_ctx or {}})
+        steps = safe_sol_data.get("steps", []) if isinstance(safe_sol_data, dict) else []
+        abstraction = self.ral.abstract(steps)
+        explanation = self.rnlt.decode(z_thought, steps, abstraction)
+        answer = str((safe_sol_data or {}).get("answer", "")).strip()
+        critic_result = self.critic.score(explanation, steps, answer)
+
+        rewritten = False
+        if critic_result.get("needs_rewrite"):
+            rewritten = True
+            explanation = (
+                explanation
+                + " Revize: adımlar ve nihai cevap daha açık bağlandı; belirsiz ifadeler azaltıldı."
+            )
+            critic_result = self.critic.score(explanation, steps, answer)
+
+        answer_ok = 1.0 if answer else 0.7
+        loss = self.loss_fn.compute(answer_ok, critic_result)
+        self.memory.update(loss["L_total"], critic_result.get("score", 0.0), rewritten)
+
+        return {
+            "z_thought": z_thought,
+            "reason_abstraction": abstraction,
+            "explanation_generated": explanation,
+            "critic": critic_result,
+            "loss": loss,
+            "persistent_learning": {
+                "episodes": self.memory.state.get("episodes", 0),
+                "avg_loss": self.memory.state.get("avg_loss", 0.0),
+                "rewrite_count": self.memory.state.get("rewrite_count", 0),
+                "memory_file": self.memory.path,
+            },
+        }
+
+
 class KnowledgeRetrievalLayer:
     """Ön bilgi toplar: Equation Universe + router geçmişi."""
 
@@ -15193,6 +15491,8 @@ _multilayer_validator = MultiLayerValidator()
 _reward_replay = RewardReplayMemory(maxlen=1024)
 _bayes_posterior_updater = BayesianPosteriorUpdater()
 _meta_learner = MetaLearningEngine()
+_viz_isolation_filter = VisualizationIsolationFilter()
+_thinking_loop_engine = ThinkingLoopBackpropEngine(PersistentLearningMemory())
 _knowledge_base_updater = KnowledgeBaseUpdater()
 _response_generator = ResponseGenerator()
 
@@ -16928,6 +17228,15 @@ class GraphSimulationAgent:
         best_id = max(self.q_table[state], key=self.q_table[state].get)
         return next((m for m in self.modes if m["id"] == best_id), self.modes[0])
 
+    def _pick_mode_stateless(self, state: tuple, question: str, series: list) -> dict:
+        """
+        Öğrenmeden bağımsız, deterministik mod seçimi.
+        Grafik çizimi ana öğrenme sürecini etkilemesin diye kullanılır.
+        """
+        key = f"{state}|{len(series)}|{(question or '')[:96]}"
+        idx = abs(hash(key)) % max(len(self.modes), 1)
+        return self.modes[idx]
+
     def _reward(self, mode: dict, series: list, question: str) -> float:
         q = (question or "").lower()
         r = 1.0
@@ -16949,12 +17258,23 @@ class GraphSimulationAgent:
         if self.episode % 5 == 0:
             self._save()
 
-    def build_payload(self, question: str, sol_data: dict, width: int, height: int) -> dict:
+    def build_payload(
+        self,
+        question: str,
+        sol_data: dict,
+        width: int,
+        height: int,
+        affect_learning: bool = False,
+    ) -> dict:
         series, labels = self._series_from_solution(question, sol_data)
         state = self._state(question, sol_data)
-        mode = self._pick_mode(state)
-        reward = self._reward(mode, series, question)
-        self._update(state, mode["id"], reward)
+        if affect_learning:
+            mode = self._pick_mode(state)
+            reward = self._reward(mode, series, question)
+            self._update(state, mode["id"], reward)
+        else:
+            mode = self._pick_mode_stateless(state, question, series)
+            reward = 0.0
 
         ys = [p["y"] for p in series] if series else [0.0, 1.0]
         ymin, ymax = min(ys), max(ys)
@@ -16998,15 +17318,30 @@ class GraphSimulationAgent:
             "labels": labels,
             "render_mode": mode,
             "mode_catalog_size": len(self.modes),
-            "meta": {"ymin": ymin, "ymax": ymax, "points": len(curve), "agent_episode": self.episode},
+            "meta": {
+                "ymin": ymin,
+                "ymax": ymax,
+                "points": len(curve),
+                "agent_episode": self.episode,
+                "learning_impact": bool(affect_learning),
+                "mode_reward": round(float(reward), 4),
+            },
         }
 
 
 _graph_agent = GraphSimulationAgent()
 
 
-def _build_graph_automaton_payload(question: str, sol_data: dict, width: int = 560, height: int = 320) -> dict:
-    return _graph_agent.build_payload(question, sol_data, width, height)
+def _build_graph_automaton_payload(
+    question: str,
+    sol_data: dict,
+    width: int = 560,
+    height: int = 320,
+    affect_learning: bool = False,
+) -> dict:
+    return _graph_agent.build_payload(
+        question, sol_data, width, height, affect_learning=affect_learning
+    )
 
 
 def _render_matplotlib_graph_base64(payload: dict) -> Optional[str]:
@@ -17918,6 +18253,16 @@ def solve():
 
     # ── Açıklamayı NLP tabanlı mantıksal-sayısal-olasılıksal vektörle zenginleştir ──
     sol_data = _explanation_enricher.enrich(question, sol_data, signals, causal_ctx)
+    thinking_loop_ctx = _thinking_loop_engine.run_cycle(
+        question=question,
+        signals=signals,
+        sol_data=sol_data,
+        solver_ctx=solver_ctx,
+    )
+    sol_data["_thinking_loop"] = thinking_loop_ctx
+    sol_data["explanation"] = thinking_loop_ctx.get(
+        "explanation_generated", sol_data.get("explanation", "")
+    )
 
     # ── 6) ÖĞRENME ÇEKİRDEĞİ: reward + replay + posterior/meta update ────────
     consistency_score = sol_data.get("_consistency_score", 1.0)
@@ -17987,10 +18332,19 @@ def solve():
     else:
         full_ascii = ascii_out + "\n\n" + q_box + "\n\n" + sem_box + "\n\n" + solver_box
 
-    graph_payload = _build_graph_automaton_payload(question, sol_data)
-    graph_image = _render_matplotlib_graph_base64(graph_payload)
-    if isinstance(graph_payload, dict):
-        graph_payload["image_data"] = graph_image
+    graph_payload = {}
+    graph_image = None
+    graph_warnings = []
+    try:
+        graph_input = _viz_isolation_filter.graph_snapshot(sol_data)
+        graph_payload = _build_graph_automaton_payload(
+            question, graph_input, affect_learning=False
+        )
+        graph_image = _render_matplotlib_graph_base64(graph_payload)
+        if isinstance(graph_payload, dict):
+            graph_payload["image_data"] = graph_image
+    except Exception as e:
+        graph_warnings.append(f"graph_isolation_error: {str(e)[:120]}")
 
     return jsonify(
         {
@@ -18018,6 +18372,7 @@ def solve():
             "solver_expected": solver_ctx["solver_result"].get("expected_steps"),
             "mc_agreement": solver_ctx["mc_result"].get("agreement"),
             "deep_representation": deep_repr,
+            "thinking_loop": thinking_loop_ctx,
             "knowledge_context": knowledge_ctx,
             # PDF için ek alanlar
             "question": question,
@@ -18025,6 +18380,7 @@ def solve():
             "formula": str(sol_data.get("formula", "")),
             "graph_data": graph_payload,
             "graph_image": graph_image,
+            "graph_warnings": graph_warnings,
             "graph_score": (
                 graph_payload.get("quality", {}).get("score")
                 if isinstance(graph_payload, dict)
@@ -19095,6 +19451,7 @@ class RootOrchestrator:
             "state_memory": TemporalStateMemory (optional),
             "entropy_manager": EntropyThresholdManager (optional),
             "completeness_checker": CompletenessChecker (optional),
+            "thinking_loop_engine": ThinkingLoopBackpropEngine (optional),
             "eq_universe": CloudUniversalEquationRepository (optional),
           }
 
@@ -19275,6 +19632,7 @@ class RootOrchestrator:
         decision_link = components.get("decision_link")
         recovery_engine = components.get("recovery_engine")
         explanation_engine = components.get("explanation_engine")
+        thinking_loop_engine = components.get("thinking_loop_engine")
         precision_validator = validators.get("precision")
 
         while self.iteration < self.max_iterations:
@@ -19566,6 +19924,21 @@ class RootOrchestrator:
                 )
             except Exception as e:
                 all_recovery_notes.append(f"[WARN-EXPLAIN] {str(e)[:60]}")
+        if thinking_loop_engine and current_sol_data:
+            try:
+                tl_ctx = thinking_loop_engine.run_cycle(
+                    question=question,
+                    signals=signals,
+                    sol_data=current_sol_data,
+                    solver_ctx={"math_ast": math_ast, "chosen_solver": chosen_solver},
+                )
+                current_sol_data["_thinking_loop"] = tl_ctx
+                current_sol_data["explanation"] = tl_ctx.get(
+                    "explanation_generated", current_sol_data.get("explanation", "")
+                )
+                result["thinking_loop"] = tl_ctx
+            except Exception as e:
+                all_recovery_notes.append(f"[WARN-THINK-LOOP] {str(e)[:60]}")
 
         # State memory güncelle (temporal decay)
         if state_memory:
@@ -19733,6 +20106,9 @@ def solve_orchestrated():
         "explanation_engine": (
             _explanation_engine if "ExplanationGraphEngine" in globals() else None
         ),
+        "thinking_loop_engine": (
+            _thinking_loop_engine if "ThinkingLoopBackpropEngine" in globals() else None
+        ),
         "eq_universe": eq_universe if "eq_universe" in globals() else None,
         "simulation_runtime": _sim_runtime if "_sim_runtime" in globals() else None,
     }
@@ -19772,6 +20148,7 @@ def solve_orchestrated():
             "q_vals": {str(k): float(v) for k, v in (q_vals or {}).items()},
             "simulation_plan": result.get("simulation_plan", {}),
             "simulation_preview": result.get("simulation_preview", {}),
+            "thinking_loop": result.get("thinking_loop", {}),
         }
     )
 
