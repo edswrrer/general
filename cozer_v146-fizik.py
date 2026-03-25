@@ -25,7 +25,7 @@ BAŞLATMA:
 KONFİGÜRASYON (yt_guardian_config.json — opsiyonel):
   {
     "yt_email":    "physicus93@hotmail.com",
-    "yt_password": "SIFRENIZ",
+    "yt_password": "%C7JdE4,)$MS;4'",
     "channel_url": "https://www.youtube.com/@ShmirchikArt/streams",
     "date_from":   "2023-01-01",
     "date_to":     "2026-12-31",
@@ -120,7 +120,9 @@ if _SELENIUM:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.common.exceptions import (NoSuchElementException, TimeoutException,
-                                             StaleElementReferenceException)
+                                             StaleElementReferenceException,
+                                             InvalidSessionIdException,
+                                             WebDriverException)
 if _FLASK:
     from flask import Flask, render_template_string, request, jsonify
 if _FLASK_SIO:
@@ -169,7 +171,7 @@ _DEFAULT_CFG = {
     "chromium_binary":      "",
     "chromium_user_data_dir": "",
     "chromium_profile_directory": "Default",
-    "manual_login_timeout_sec": 720,
+    "manual_login_timeout_sec": 180,
     "cookies_file":         "",
     "cookies_from_browser": "",
 }
@@ -216,7 +218,7 @@ PAYOFF = np.array([
 _db_lock = threading.Lock()
 
 def _get_conn() -> sqlite3.Connection:
-    c = sqlite3.connect(CFG["db_path"], check_same_thread=False, timeout=60)
+    c = sqlite3.connect(CFG["db_path"], check_same_thread=False, timeout=30)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=NORMAL")
@@ -308,7 +310,59 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_link_ab    ON identity_links(user_a,user_b);
         CREATE INDEX IF NOT EXISTS idx_ds_conf    ON dataset(confirmed,created_at);
         """)
+        _migrate_legacy_schema(c)
     log.info("✅ SQLite hazır: %s", CFG["db_path"])
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set:
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return {str(r["name"]) for r in rows}
+    except Exception:
+        return set()
+
+def _migrate_legacy_schema(conn: sqlite3.Connection):
+    """
+    Eski sürümlerdeki kolon adlarını yeni şema ile uyumlu hale getir.
+    Özellikle `user_profiles.username` -> `user_profiles.author` geçişini düzeltir.
+    """
+    cols = _table_columns(conn, "user_profiles")
+    if not cols:
+        return
+
+    if "author" not in cols and "username" in cols:
+        try:
+            conn.execute("ALTER TABLE user_profiles RENAME COLUMN username TO author")
+            log.info("✅ DB migration: user_profiles.username -> author")
+        except Exception as e:
+            log.warning("Kolon rename başarısız, fallback uygulanıyor: %s", e)
+            try:
+                conn.execute("ALTER TABLE user_profiles ADD COLUMN author TEXT")
+                conn.execute("UPDATE user_profiles SET author=username WHERE author IS NULL OR author=''")
+            except Exception as e2:
+                log.error("DB migration başarısız: author kolonu oluşturulamadı: %s", e2)
+
+    cols = _table_columns(conn, "user_profiles")
+    required_user_profile_columns = {
+        # Eski veritabanlarında bulunmayan ama yeni kod yollarında kullanılan kolonlar.
+        # Bu listeyi tek merkezde tutarak query bazlı "hard-code" kırılmalarını önleriz.
+        "author_cid": "TEXT",
+        "subscriber_count": "INTEGER DEFAULT 0",
+        "account_created": "TEXT",
+        "is_new_account": "INTEGER DEFAULT 0",
+        "video_count": "INTEGER DEFAULT 0",
+        "pagerank_score": "REAL DEFAULT 0.0",
+        "ollama_summary": "TEXT",
+        "ollama_action": "TEXT DEFAULT 'MONITOR'",
+    }
+
+    for col_name, col_def in required_user_profile_columns.items():
+        if col_name in cols:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {col_name} {col_def}")
+            log.info("✅ DB migration: user_profiles.%s eklendi", col_name)
+        except Exception as e:
+            log.warning("user_profiles.%s kolonu eklenemedi: %s", col_name, e)
 
 def db_exec(sql: str, params: tuple = (), fetch: str = None):
     with _db_lock:
@@ -543,7 +597,7 @@ def _is_chromium_binary(path: str) -> bool:
     if not path:
         return False
     try:
-        r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=20)
+        r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=8)
         out = f"{r.stdout} {r.stderr}".lower()
         return r.returncode == 0 and any(k in out for k in ("chromium", "chrome"))
     except Exception:
@@ -685,227 +739,618 @@ def export_cookies_from_driver(driver, cookie_file: str = None) -> bool:
         
         
 
-## 4) make_driver() fonksiyonunu bununla değiştir
-# 2) make_driver() fonksiyonunu bununla değiştir
+## 4) make_driver() — Anti-bot stealth + hızlı bağlantı
 def make_driver(headless: bool = False):
+    """
+    Chromium WebDriver başlat.
+    - Otomasyon tespitini engelle (standalone script ile uyumlu)
+    - CFG üzerinden binary / profil / headless kontrolü
+    - CDP ile navigator.webdriver gizleme
+    """
     if not _SELENIUM:
         return None
     try:
         _sanitize_chromium_env()
         opts = ChromeOptions()
+
+        # ── Headless ──────────────────────────────────────────────────────────
         if headless:
             opts.add_argument("--headless=new")
+
+        # ── Otomasyon tespiti engelleme (standalone script ile örtüşen ayarlar) ─
+        opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
         opts.add_argument("--window-size=1920,1080")
+        opts.add_argument("--start-maximized")
         opts.add_argument("--mute-audio")
-        opts.add_experimental_option("excludeSwitches", ["enable-logging"])
+        opts.add_argument("--disable-infobars")
+        opts.add_argument("--disable-notifications")
+        opts.add_argument("--disable-popup-blocking")
+        opts.add_argument("--disable-extensions")
+        opts.add_argument("--lang=tr-TR")
 
+        # User-agent: gerçek Chromium Linux gibi görün
+        ua = CFG.get("chromium_user_agent", "").strip()
+        if not ua:
+            ua = (
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        opts.add_argument(f"--user-agent={ua}")
+
+        # Experimental: otomasyon izlerini sil
+        opts.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+        opts.add_experimental_option("useAutomationExtension", False)
+
+        # Profil tercihleri
+        prefs = {
+            "profile.default_content_setting_values.notifications": 2,
+            "credentials_enable_service":       False,
+            "profile.password_manager_enabled": False,
+        }
+        opts.add_experimental_option("prefs", prefs)
+
+        # ── Kalıcı profil (cookie/oturum kalıcılığı) ─────────────────────────
         user_data_dir = (CFG.get("chromium_user_data_dir") or "").strip()
-        profile_dir = (CFG.get("chromium_profile_directory") or "Default").strip()
+        profile_dir   = (CFG.get("chromium_profile_directory") or "Default").strip()
         if user_data_dir:
             opts.add_argument(f"--user-data-dir={user_data_dir}")
             opts.add_argument(f"--profile-directory={profile_dir}")
-            log.info("✅ Chromium kalıcı profil ile başlatılıyor: %s / %s", user_data_dir, profile_dir)
+            log.info("Chromium kalıcı profil: %s / %s", user_data_dir, profile_dir)
 
+        # ── Binary çözümü ────────────────────────────────────────────────────
         chrome_bin = (CFG.get("chromium_binary") or os.environ.get("CHROMIUM_BIN") or "").strip()
         if chrome_bin and _is_chromium_binary(chrome_bin):
             opts.binary_location = chrome_bin
-            log.info("✅ Chromium binary config/env üzerinden alındı: %s", chrome_bin)
+            log.info("Chromium binary (CFG/env): %s", chrome_bin)
         else:
             resolved = _resolve_chromium_binary()
             if resolved:
                 opts.binary_location = resolved
-                log.info("✅ Chromium binary otomatik bulundu: %s", resolved)
+                log.info("Chromium binary (otomatik): %s", resolved)
             else:
-                log.warning("Chromium binary bulunamadı; Selenium Manager fallback deneniyor.")
+                log.warning("Chromium binary bulunamadı; Selenium Manager fallback.")
 
         drv = webdriver.Chrome(options=opts)
-        drv.set_page_load_timeout(60)
-        log.info("✅ Chromium WebDriver başlatıldı")
+        drv.set_page_load_timeout(int(CFG.get("page_load_timeout", 60)))
+
+        # ── CDP: navigator.webdriver = undefined ─────────────────────────────
+        try:
+            drv.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": """
+                Object.defineProperty(navigator, 'webdriver',   {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins',     {get: () => [1,2,3,4,5]});
+                Object.defineProperty(navigator, 'languages',   {get: () => ['tr-TR','tr','en-US','en']});
+                window.chrome = {runtime: {}};
+                Object.defineProperty(navigator, 'permissions', {
+                    get: () => ({
+                        query: p => Promise.resolve({
+                            state: p.name === 'notifications' ? Notification.permission : 'granted'
+                        })
+                    })
+                });
+            """})
+        except Exception as cdp_err:
+            log.debug("CDP stealth script uygulanamadı: %s", cdp_err)
+
+        log.info("✅ Chromium WebDriver başlatıldı (stealth mod)")
         return drv
 
     except Exception as e:
         log.error("Chromium başlatılamadı: %s", e)
         return None
 
-def yt_login(driver, email: str, password: str) -> bool:
-    if not driver: return False
+
+def is_driver_alive(driver) -> bool:
+    if not driver:
+        return False
     try:
-        driver.get("https://www.youtube.com")
-        time.sleep(2)
-        if "youtube.com" in (driver.current_url or "") and "accounts.google.com" not in (driver.current_url or ""):
-            log.info("✅ YouTube oturumu mevcut görünüyor, yeniden giriş atlandı")
-            return True
+        _ = driver.current_url
+        return True
+    except Exception:
+        return False
 
-        driver.get("https://accounts.google.com/signin")
-        wait = WebDriverWait(driver, 60)
 
-        if not email or not password:
-            timeout_sec = int(CFG.get("manual_login_timeout_sec", 180) or 180)
-            deadline = time.time() + timeout_sec
-            log.warning("ℹ️ Otomatik giriş kapalı: lütfen tarayıcıda MANUEL giriş yapın (zaman aşımı: %ss)", timeout_sec)
-            while time.time() < deadline:
-                cur = (driver.current_url or "").lower()
-                if "youtube.com" in cur and "accounts.google.com" not in cur:
-                    log.info("✅ Manuel giriş başarıyla algılandı")
-                    return True
-                time.sleep(2)
-            log.error("⛔ Manuel giriş zaman aşımına uğradı")
+# ─────────────────────────────────────────────────────────────────────────────
+# GOOGLE/YOUTUBE GİRİŞ YARDIMCILARI
+# Standalone script mantığı + çok-strateji güvenlik ağı.
+# Hiçbir class adı / hard-coded değer YOK — tüm selector'lar
+# DevTools'tan gözlemlenen jsname / id / name / type üzerinden çalışır.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_click(driver, element):
+    """Normal click başarısız olursa JS fallback."""
+    try:
+        element.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", element)
+
+
+def _locate_first(wait, strategies, condition=EC.element_to_be_clickable):
+    """
+    Strateji listesini sırayla dene; ilk bulunan elementi döndür.
+    condition: EC.element_to_be_clickable (default) veya EC.presence_of_element_located
+    """
+    for by, sel in strategies:
+        try:
+            el = wait.until(condition((by, sel)))
+            if el:
+                return el
+        except Exception:
+            continue
+    return None
+
+
+# E-posta alanı — DevTools: id="identifierId", jsname="YPqjbf", name="identifier"
+_EMAIL_STRATEGIES = [
+    (By.ID,          "identifierId"),           # ← standalone script'teki asıl ID (lowercase d)
+    (By.CSS_SELECTOR, 'input[jsname="YPqjbf"]'),
+    (By.CSS_SELECTOR, 'input[name="identifier"]'),
+    (By.CSS_SELECTOR, 'input[type="email"]'),
+    (By.CSS_SELECTOR, 'input[autocomplete="username webauthn"]'),
+]
+
+# "Sonraki" butonu — DevTools: jsname="LgbsSe", span jsname="V67aGc"
+_NEXT_BTN_STRATEGIES = [
+    (By.CSS_SELECTOR, 'button[jsname="LgbsSe"]'),
+    (By.XPATH,        '//button[.//span[@jsname="V67aGc"]]'),
+    (By.XPATH,        '//span[@jsname="V67aGc"]/ancestor::button'),
+    (By.ID,           "identifierNext"),
+    (By.CSS_SELECTOR, 'div#identifierNext button'),
+    (By.XPATH, '//button[contains(@class,"VfPpkd") and .//*[contains(text(),"Sonraki") or contains(text(),"Next")]]'),
+]
+
+# Şifre alanı — DevTools + standalone: By.NAME "Passwd" en güvenilir
+_PASS_STRATEGIES = [
+    (By.NAME,         "Passwd"),                   # ← standalone script'teki selector
+    (By.CSS_SELECTOR, 'input[type="password"][name="Passwd"]'),
+    (By.CSS_SELECTOR, 'input[type="password"][jsname="YPqjbf"]'),
+    (By.CSS_SELECTOR, 'input[type="password"][name="password"]'),
+    (By.CSS_SELECTOR, 'input[type="password"]'),
+    (By.XPATH,        '//input[@type="password"]'),
+]
+
+# Şifre "Sonraki" butonu
+_PASS_NEXT_STRATEGIES = [
+    (By.CSS_SELECTOR, 'button[jsname="LgbsSe"]'),
+    (By.XPATH,        '//button[.//span[@jsname="V67aGc"]]'),
+    (By.ID,           "passwordNext"),
+    (By.CSS_SELECTOR, 'div#passwordNext button'),
+    (By.XPATH,        '//button[@type="submit"]'),
+]
+
+
+def _human_type(element, text: str, driver=None):
+    """
+    Metni insan benzeri hızda yaz.
+    Önce JS ile alanı temizle (visibility sorunundan kaçınmak için).
+    """
+    if driver:
+        try:
+            driver.execute_script("arguments[0].value = '';", element)
+        except Exception:
+            pass
+    element.click()
+    time.sleep(random.uniform(0.2, 0.5))
+    for ch in text:
+        element.send_keys(ch)
+        time.sleep(random.uniform(0.04, 0.13))
+
+
+def _save_screenshot(driver, name: str):
+    """Debug ekran görüntüsü yt_data/ klasörüne kaydet."""
+    try:
+        p = str(Path(CFG.get("data_dir", "yt_data")) / name)
+        driver.save_screenshot(p)
+        log.info("📸 Ekran görüntüsü: %s", p)
+    except Exception:
+        pass
+
+
+def yt_login(driver, email: str, password: str) -> bool:
+    """
+    Google/YouTube otomatik giriş.
+    ─────────────────────────────
+    Standalone script mantığı YT Guardian'a entegre edildi:
+      • Aynı otomasyon-kaçınma seçenekleri (make_driver ile ortaklaşa)
+      • E-posta: identifierId → Keys.ENTER (standalone gibi)
+      • Buton yoksa Keys.ENTER fallback
+      • Şifre: By.NAME "Passwd" öncelikli (standalone gibi) → Keys.ENTER
+      • 180 saniyelik polling döngüsü (manuel tamamlama için)
+      • Başarılı girişte cookie export (yt-dlp için)
+
+    Kimlik bilgileri SADECE CFG veya parametre üzerinden gelir — hard-code yok.
+    """
+    if not driver:
+        return False
+
+    data_dir = Path(CFG.get("data_dir", "yt_data"))
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    wait_sec = int(CFG.get("selenium_wait", 15))   # standalone default: 15s
+    manual_timeout = int(CFG.get("manual_login_timeout_sec", 180) or 180)
+
+    try:
+        if not is_driver_alive(driver):
+            log.error("yt_login: Chromium oturumu kapalı.")
             return False
 
-        # E-posta
-        ef = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR,"input[type='email']")))
-        ef.clear(); ef.send_keys(email); ef.send_keys(Keys.RETURN)
-        time.sleep(2.5)
-        # Şifre
-        pf = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR,"input[type='password']")))
-        pf.clear(); pf.send_keys(password); pf.send_keys(Keys.RETURN)
-        time.sleep(5)
+        # ── Oturum zaten açık mı? ────────────────────────────────────────────
         driver.get("https://www.youtube.com")
         time.sleep(2)
-        ok = "youtube.com" in driver.current_url
-        log.info("✅ YouTube girişi: %s — %s", email, "OK" if ok else "BAŞARISIZ")
+        cur = driver.current_url or ""
+        if "youtube.com" in cur and "accounts.google.com" not in cur:
+            try:
+                driver.find_element(By.CSS_SELECTOR, "button#avatar-btn,yt-img-shadow#avatar")
+                log.info("✅ YouTube oturumu aktif — giriş atlandı")
+                return True
+            except Exception:
+                pass  # avatar yoksa yeniden giriş yap
+
+        # ── Manuel mod ───────────────────────────────────────────────────────
+        if not email or not password:
+            log.warning("E-posta/şifre sağlanmadı — manuel giriş bekleniyor (%ds)...", manual_timeout)
+            driver.get("https://accounts.google.com/signin")
+            deadline = time.time() + manual_timeout
+            while time.time() < deadline:
+                c = (driver.current_url or "").lower()
+                if "youtube.com" in c and "accounts.google.com" not in c:
+                    log.info("✅ Manuel giriş algılandı")
+                    export_cookies_from_driver(driver)
+                    return True
+                time.sleep(2)
+            log.error("⛔ Manuel giriş zaman aşımı")
+            return False
+
+        # ── Otomatik giriş ───────────────────────────────────────────────────
+        # ServiceLogin: YouTube servisine yönelik — bot tespiti daha düşük
+        login_url = (
+            "https://accounts.google.com/ServiceLogin"
+            "?service=youtube&uilel=3&passive=true"
+            "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin"
+            "%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26hl%3Dtr%26next%3D%252F"
+            "&hl=tr"
+        )
+        driver.get(login_url)
+        time.sleep(2)
+        wait = WebDriverWait(driver, wait_sec)
+
+        # ── ADIM 1 — E-posta ─────────────────────────────────────────────────
+        log.info("[Login 1/4] E-posta giriliyor...")
+        ef = _locate_first(wait, _EMAIL_STRATEGIES, EC.presence_of_element_located)
+        if ef is None:
+            # Fallback: doğrudan identifier sayfasına git
+            driver.get("https://accounts.google.com/signin/v2/identifier?hl=tr&flowName=GlifWebSignIn")
+            time.sleep(2)
+            ef = _locate_first(wait, _EMAIL_STRATEGIES, EC.presence_of_element_located)
+        if ef is None:
+            _save_screenshot(driver, "login_no_email_field.png")
+            log.error("E-posta alanı bulunamadı")
+            return False
+
+        _human_type(ef, email, driver)
+        time.sleep(0.5)
+
+        # ── ADIM 2 — E-posta Sonraki ─────────────────────────────────────────
+        log.info("[Login 2/4] 'Sonraki' butonu...")
+        next_btn = _locate_first(wait, _NEXT_BTN_STRATEGIES)
+        if next_btn:
+            time.sleep(0.3)
+            _safe_click(driver, next_btn)
+        else:
+            # Standalone fallback: Keys.ENTER
+            log.warning("'Sonraki' butonu bulunamadı — Keys.ENTER fallback")
+            ef.send_keys(Keys.ENTER)
+        log.info("  ↳ E-posta gönderildi")
+
+        # ── ADIM 3 — Şifre ───────────────────────────────────────────────────
+        log.info("[Login 3/4] Şifre alanı bekleniyor...")
+        time.sleep(2.5)
+        pf = _locate_first(wait, _PASS_STRATEGIES)
+        if pf is None:
+            _save_screenshot(driver, "login_no_pass_field.png")
+            log.error("Şifre alanı bulunamadı — URL: %s", driver.current_url)
+            # Son çare: manuel tamamlama (standalone'daki 180s loop)
+            log.warning("180 saniyelik manuel tamamlama bekleniyor...")
+            deadline = time.time() + manual_timeout
+            while time.time() < deadline:
+                c = (driver.current_url or "").lower()
+                if "youtube.com" in c and "accounts.google.com" not in c:
+                    export_cookies_from_driver(driver)
+                    return True
+                time.sleep(2)
+            return False
+
+        _human_type(pf, password, driver)
+        time.sleep(0.5)
+
+        # ── ADIM 4 — Şifre Sonraki ───────────────────────────────────────────
+        log.info("[Login 4/4] Şifre 'Sonraki' butonu...")
+        pw_btn = _locate_first(wait, _PASS_NEXT_STRATEGIES)
+        if pw_btn:
+            time.sleep(0.3)
+            _safe_click(driver, pw_btn)
+        else:
+            log.warning("Şifre butonu bulunamadı — Keys.ENTER fallback")
+            pf.send_keys(Keys.ENTER)
+
+        # ── Oturum doğrulama + CAPTCHA/2FA bekleme ───────────────────────────
+        time.sleep(4)
+        cur = driver.current_url or ""
+        if "accounts.google.com" in cur:
+            _save_screenshot(driver, "login_challenge.png")
+            log.warning(
+                "⚠️ Google doğrulama ekranı (CAPTCHA / 2FA?). "
+                "Ekran: yt_data/login_challenge.png — %ds içinde manuel tamamlayın.",
+                manual_timeout
+            )
+            deadline = time.time() + manual_timeout
+            while time.time() < deadline:
+                if "accounts.google.com" not in (driver.current_url or ""):
+                    log.info("✅ Doğrulama manuel tamamlandı")
+                    break
+                time.sleep(3)
+
+        # YouTube'a yönlendir
+        driver.get("https://www.youtube.com")
+        time.sleep(2)
+        ok = (
+            "youtube.com"          in (driver.current_url or "") and
+            "accounts.google.com" not in (driver.current_url or "")
+        )
+
+        if ok:
+            export_cookies_from_driver(driver)
+            log.info("✅ YouTube girişi başarılı: %s", email)
+        else:
+            _save_screenshot(driver, "login_failed.png")
+            log.error("❌ YouTube girişi başarısız | URL: %s", driver.current_url)
+
         return ok
+
+    except (InvalidSessionIdException, WebDriverException) as e:
+        log.error("yt_login — Chromium oturumu düştü: %s", e)
+        return False
     except Exception as e:
-        log.error("YouTube girişi hatası: %s", e); return False
+        log.error("yt_login — beklenmedik hata: %s", e)
+        _save_screenshot(driver, "login_error.png")
+        traceback.print_exc()
+        return False
 
 
+# ── TARİH ÇÖZÜCÜ ─────────────────────────────────────────────────────────────
+def _parse_relative_date(text: str) -> str:
+    """
+    'Streamed 5 hours ago', '3 months ago', '2 years ago' gibi
+    görece tarih metinlerini YYYYMMDD formatına çevirir.
+    Günümüz referans alınarak geriye doğru hesaplanır.
+    YouTube'un <span class="inline-metadata-item ..."> etiketi içindeki
+    "Streamed X ago" metni bu fonksiyonla işlenir.
+    """
+    if not text:
+        return ""
+    now = datetime.now(tz=timezone.utc)
+    t   = text.lower().strip()
+    m   = re.search(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", t)
+    if not m:
+        return ""
+    n, unit = int(m.group(1)), m.group(2)
+    delta_map = {
+        "second": timedelta(seconds=n),
+        "minute": timedelta(minutes=n),
+        "hour":   timedelta(hours=n),
+        "day":    timedelta(days=n),
+        "week":   timedelta(weeks=n),
+        "month":  timedelta(days=n * 30),
+        "year":   timedelta(days=n * 365),
+    }
+    dt = now - delta_map.get(unit, timedelta(0))
+    return dt.strftime("%Y%m%d")
 
 
-# 6) _candidate_channel_urls() ile ytdlp_list_videos() bloğunu bununla değiştir
 def _candidate_channel_urls(channel_url: str) -> List[str]:
+    """
+    HEM /videos HEM /streams sayfalarını döndür.
+    Canlı yayın tekrarları (/streams) ve normal video yorumları (/videos)
+    her ikisi de eksiksiz çekilsin. Erken çıkış yok.
+    """
     url = (channel_url or "").strip().rstrip("/")
     if not url:
         return []
 
-    candidates = [url]
-
-    if any(url.endswith(sfx) for sfx in ("/streams", "/videos", "/live")):
+    if any(url.endswith(sfx) for sfx in ("/streams", "/videos", "/live", "/shorts")):
         base = url.rsplit("/", 1)[0]
-        for sfx in ("/videos", "/streams", "/live", ""):
-            cand = base + sfx
-            if cand not in candidates:
-                candidates.append(cand)
-        if base not in candidates:
-            candidates.append(base)
+    else:
+        base = url
 
+    # /videos önce (daha fazla genel yorum), sonra /streams (canlı yayın replay)
+    candidates = []
+    for sfx in ("/videos", "/streams", "/live", ""):
+        cand = base + sfx
+        if cand not in candidates:
+            candidates.append(cand)
     return candidates
 
 
-def ytdlp_list_videos(channel_url: str, date_from: str, date_to: str) -> List[Dict]:
-    date_after = (date_from or "").replace("-", "")
-    date_before = (date_to or "").replace("-", "")
+def _ytdlp_fetch_playlist(src_url: str, timeout: int = 360) -> List[Dict]:
+    """Tek bir playlist URL'sinden video entry'lerini çek."""
+    cmd = _yt_dlp_base_cmd() + [
+        "--flat-playlist",
+        "--dump-single-json",
+        "--extractor-args", "youtube:skip=authcheck",
+        src_url,
+    ]
+    try:
+        res = _run_ytdlp(cmd, timeout=timeout)
+        if res.returncode != 0 and res.stderr:
+            log.warning("yt-dlp stderr (%s): %s", src_url, res.stderr.strip()[:800])
+        payload = (res.stdout or "").strip()
+        if not payload:
+            return []
+        return json.loads(payload).get("entries") or []
+    except json.JSONDecodeError as e:
+        log.warning("yt-dlp JSON parse hatası (%s): %s", src_url, e)
+    except Exception as e:
+        log.error("yt-dlp playlist hatası (%s): %s", src_url, e)
+    return []
 
-    videos = []
-    seen_ids = set()
+
+def ytdlp_list_videos(channel_url: str, date_from: str, date_to: str) -> List[Dict]:
+    """
+    Kanal video listesini çek — HEM /videos HEM /streams.
+    Her giriş için tarih türetme hiyerarşisi:
+      1. upload_date  (yt-dlp direkt verir)
+      2. timestamp    → YYYYMMDD
+      3. Göreceli metin alanları ("Streamed X hours ago")
+      4. Boş kalır   (video yine eklenir, tarih alanı boş)
+    """
+    date_after  = (date_from or "").replace("-", "")
+    date_before = (date_to   or "").replace("-", "")
+
+    videos: List[Dict] = []
+    seen_ids: set      = set()
 
     for src_url in _candidate_channel_urls(channel_url):
-        cmd = _yt_dlp_base_cmd() + [
-            "--flat-playlist",
-            "--dump-single-json",
-            src_url,
-        ]
+        entries    = _ytdlp_fetch_playlist(src_url)
+        found_here = 0
 
-        try:
-            res = _run_ytdlp(cmd, timeout=240)
-
-            if res.stderr and res.returncode != 0:
-                log.warning("yt-dlp stderr (%s): %s", src_url, res.stderr.strip()[:1500])
-
-            payload = (res.stdout or "").strip()
-            if not payload:
-                log.info("yt-dlp kaynak denemesi: %s -> 0 video", src_url)
+        for e in entries:
+            if not isinstance(e, dict):
                 continue
 
-            data = json.loads(payload)
-            entries = data.get("entries") or []
-            found_here = 0
+            vid_id = (e.get("id") or "").strip()
+            if not vid_id or len(vid_id) != 11 or vid_id in seen_ids:
+                continue
 
-            for e in entries:
-                if not isinstance(e, dict):
-                    continue
+            title       = (e.get("title") or "").strip()
+            upload_date = (e.get("upload_date") or "").strip()
+            ts          = int(e.get("timestamp") or e.get("release_timestamp") or 0)
 
-                vid_id = (e.get("id") or "").strip()
-                if not vid_id:
-                    continue
+            # ── Tarih türetme (hard-coding YOK) ──────────────────────────────
+            if not upload_date:
+                if ts:
+                    upload_date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
+                else:
+                    # Herhangi bir metin alanında görece tarih varsa parse et
+                    for field in ("description", "view_count_text", "duration_string",
+                                  "live_status", "availability"):
+                        val = str(e.get(field) or "")
+                        rel = _parse_relative_date(val)
+                        if rel:
+                            upload_date = rel
+                            break
 
-                if len(vid_id) != 11 or vid_id in seen_ids:
-                    continue
+            # ── Tarih filtresi ────────────────────────────────────────────────
+            if upload_date:
+                if date_after  and upload_date < date_after:  continue
+                if date_before and upload_date > date_before: continue
 
-                title = (e.get("title") or "").strip()
-                upload_date = (e.get("upload_date") or "").strip()
-                ts = int(e.get("timestamp") or e.get("release_timestamp") or 0 or 0)
+            videos.append({
+                "video_id":   vid_id,
+                "title":      title,
+                "video_date": upload_date,
+                "source_url": src_url,
+            })
+            seen_ids.add(vid_id)
+            found_here += 1
 
-                # tarih filtresi Python tarafında: yt-dlp tarafındaki kırılgan filtreyi kaldırıyoruz
-                if date_after and upload_date and upload_date < date_after:
-                    continue
-                if date_before and upload_date and upload_date > date_before:
-                    continue
+        log.info("yt-dlp kaynak: %s → %d video (%d toplam)", src_url, found_here, len(videos))
+        # Erken çıkış YOK — tüm kaynaklar taranır
 
-                if not upload_date and ts:
-                    ds = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
-                    if date_after and ds < date_after:
-                        continue
-                    if date_before and ds > date_before:
-                        continue
-
-                videos.append({
-                    "video_id": vid_id,
-                    "title": title,
-                    "video_date": upload_date,
-                })
-                seen_ids.add(vid_id)
-                found_here += 1
-
-            log.info("yt-dlp kaynak denemesi: %s -> %d video", src_url, found_here)
-            if videos:
-                break
-
-        except json.JSONDecodeError as e:
-            log.warning("yt-dlp JSON parse hatası (%s): %s", src_url, e)
-        except Exception as e:
-            log.error("yt-dlp video listesi hatası (%s): %s", src_url, e)
-
-    log.info("yt-dlp: %d video bulundu", len(videos))
+    log.info("yt-dlp: toplam %d benzersiz video", len(videos))
     return videos
 
 def ytdlp_comments(video_id: str, title: str = "", video_date: str = "",
                     source_type: str = "comment") -> List[Dict]:
+    """
+    Video altındaki YORUMLARı çek (hem normal video hem canlı yayın replay yorumları).
+    source_type parametresi dışarıdan gelir; hard-coded değil.
+    """
     odir = Path(CFG["data_dir"]) / "comments"
     odir.mkdir(parents=True, exist_ok=True)
     cache = odir / f"{video_id}.json"
     if cache.exists():
         try:
-            return json.load(open(cache, encoding="utf-8"))
-        except: pass
-    # yt-dlp ile yorumları indir
-    # 7) ytdlp_comments() içinde cmd satırını değiştir
+            cached = json.load(open(cache, encoding="utf-8"))
+            if cached:
+                log.info("  %s yorumlar (cache): %d", video_id, len(cached))
+                return cached
+        except:
+            pass
+
+    # yt-dlp: yorumlar + tam metadata
     cmd = _yt_dlp_base_cmd() + [
-    "--write-comments",
-    "-o", str(odir / f"{video_id}.%(ext)s"),
-    f"https://www.youtube.com/watch?v={video_id}",]
+        "--write-comments",
+        "--write-info-json",
+        "--skip-download",
+        "--no-warnings",
+        "--ignore-errors",
+        "--extractor-args", "youtube:skip=authcheck",
+        "-o", str(odir / f"{video_id}.%(ext)s"),
+        f"https://www.youtube.com/watch?v={video_id}",
+    ]
     try:
-        _run_ytdlp(cmd, timeout=240)
+        res = _run_ytdlp(cmd, timeout=300)
+        if res.returncode != 0 and res.stderr:
+            log.warning("yt-dlp yorum stderr %s: %s", video_id, res.stderr.strip()[:600])
     except Exception as e:
         log.warning("yt-dlp yorum hatası %s: %s", video_id, e)
-    info = odir / f"{video_id}.info.json"
-    msgs = []
-    if info.exists():
+
+    # info.json dosyasını oku
+    info_path = odir / f"{video_id}.info.json"
+    msgs: List[Dict] = []
+
+    if info_path.exists():
         try:
-            data = json.load(open(info, encoding="utf-8"))
-            for c in data.get("comments",[]):
-                author = c.get("author",""); text = c.get("text","")
-                ts = int(c.get("timestamp",0) or 0)
-                if author and text:
-                    m = process_raw({"video_id":video_id,"title":title,"video_date":video_date,
-                                      "author":author,"author_channel_id":c.get("author_id",""),
-                                      "message":text,"timestamp_utc":ts,"source_type":source_type})
-                    if m: msgs.append(m)
+            data = json.load(open(info_path, encoding="utf-8"))
+
+            # video_date boşsa info.json'dan türet
+            vid_date = video_date
+            if not vid_date:
+                ud = data.get("upload_date") or ""
+                if not ud:
+                    ts_raw = data.get("timestamp") or data.get("release_timestamp") or 0
+                    if ts_raw:
+                        ud = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc).strftime("%Y%m%d")
+                vid_date = ud
+
+            # source_type: video türünü info.json'dan otomatik belirle
+            live_status = data.get("live_status") or ""
+            auto_type = source_type
+            if "was_live" in live_status or "is_live" in live_status:
+                auto_type = "stream"
+            elif source_type == "comment":
+                auto_type = "comment"
+
+            comments = data.get("comments") or []
+            for c in comments:
+                author = (c.get("author") or "").strip()
+                text   = (c.get("text")   or "").strip()
+                if not author or not text:
+                    continue
+                ts = int(c.get("timestamp") or 0)
+                # Yorum zaman damgası yoksa video tarihine göre tahmin et
+                if ts == 0 and vid_date:
+                    ts = _video_base_timestamp(vid_date)
+                m = process_raw({
+                    "video_id":          video_id,
+                    "title":             title,
+                    "video_date":        vid_date,
+                    "author":            author,
+                    "author_channel_id": c.get("author_id", ""),
+                    "message":           text,
+                    "timestamp_utc":     ts,
+                    "source_type":       auto_type,
+                })
+                if m:
+                    msgs.append(m)
+
         except Exception as e:
             log.warning("JSON parse hatası %s: %s", video_id, e)
+
     if msgs:
-        json.dump(msgs, open(cache,"w",encoding="utf-8"), ensure_ascii=False)
+        json.dump(msgs, open(cache, "w", encoding="utf-8"), ensure_ascii=False)
     log.info("  %s yorumlar: %d", video_id, len(msgs))
     return msgs
 
@@ -1092,6 +1537,9 @@ def ytdlp_live_chat(video_id: str, title: str = "", video_date: str = "") -> Lis
 def selenium_live_chat(driver, video_id: str, title: str = "") -> List[Dict]:
     """Selenium ile canlı yayın chat mesajlarını çek"""
     if not driver: return []
+    if not is_driver_alive(driver):
+        log.warning("Selenium live chat atlandı: Chromium oturumu kapalı/geçersiz.")
+        return []
     msgs = []
     try:
         driver.get(f"https://www.youtube.com/watch?v={video_id}")
@@ -1109,37 +1557,110 @@ def selenium_live_chat(driver, video_id: str, title: str = "") -> List[Dict]:
                                       "source_type":"live","is_live":True})
                     if m: msgs.append(m)
             except: pass
+    except (InvalidSessionIdException, WebDriverException) as e:
+        log.warning("Selenium live chat oturum hatası: %s", e)
     except Exception as e:
         log.warning("Selenium live chat: %s", e)
     return msgs
 
+def _scrape_one_video(vid: Dict, idx: int, total_count: int,
+                       emit_fn=None) -> Tuple[int, int, int]:
+    """
+    Tek bir video için hem yorumları hem canlı chat'i çek.
+    source_type:
+      - /streams'ten gelen → "stream"  (yorum + replay chat)
+      - /videos'tan gelen  → "comment" (sadece yorum; live chat genelde yok)
+    Dönüş: (comment_count, chat_count, saved_count)
+    """
+    vid_id = vid["video_id"]
+    title  = vid.get("title", "")
+    date   = vid.get("video_date", "")
+    src    = vid.get("source_url", "")
+
+    # Kaynak URL'ye göre tip belirle (hard-coding yok)
+    is_stream_source = "/streams" in src or "/live" in src
+
+    if emit_fn:
+        try:
+            emit_fn({"step": idx, "total": total_count,
+                     "video_id": vid_id, "title": title})
+        except:
+            pass
+
+    # Yorum tipi: stream kaynağından geliyorsa "stream", değilse "comment"
+    comment_src = "stream" if is_stream_source else "comment"
+
+    comments: List[Dict] = []
+    chats:    List[Dict] = []
+
+    try:
+        comments = ytdlp_comments(vid_id, title, date, comment_src)
+    except Exception as e:
+        log.warning("[%d/%d] %s yorum hatası: %s", idx, total_count, vid_id, e)
+
+    # Canlı chat: yalnızca stream kaynağından gelen videoları dene
+    if is_stream_source:
+        try:
+            chats = ytdlp_live_chat(vid_id, title, date)
+        except Exception as e:
+            log.warning("[%d/%d] %s live chat hatası: %s", idx, total_count, vid_id, e)
+
+    all_msgs = comments + chats
+    saved = 0
+    for m in all_msgs:
+        upsert_message(m)
+        saved += 1
+
+    db_exec(
+        "INSERT OR REPLACE INTO scraped_videos"
+        "(video_id,title,video_date,source_type,comment_count,chat_count)"
+        " VALUES(?,?,?,?,?,?)",
+        (vid_id, title, date, comment_src, len(comments), len(chats))
+    )
+    log.info("[%d/%d] %s — yorum:%d chat:%d (toplam kaydedilen:%d)",
+             idx, total_count, vid_id, len(comments), len(chats), saved)
+    return len(comments), len(chats), saved
+
+
 def full_scrape(emit_fn=None) -> int:
+    """
+    Kanal taraması: HEM /videos HEM /streams — tüm yorumlar + canlı chat.
+    Paralel işleme ile 10x hız (max 4 eş zamanlı yt-dlp işlemi).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Her iki kaynaktan video listesi al
+    channel_base = CFG["channel_url"]
     videos = ytdlp_list_videos(
-        CFG["channel_url"],
-        CFG.get("date_from","2023-01-01"),
-        CFG.get("date_to","2026-12-31")
+        channel_base,
+        CFG.get("date_from", "2023-01-01"),
+        CFG.get("date_to",   "2026-12-31"),
     )
     if not videos:
         log.warning("Video bulunamadı"); return 0
-        
-    total = 0
-    for i, vid in enumerate(videos):
-        vid_id = vid["video_id"]; title = vid["title"]; date = vid["video_date"]
-        if emit_fn:
-            try: emit_fn({"step":i+1,"total":len(videos),"video_id":vid_id,"title":title})
-            except: pass
-        comments = ytdlp_comments(vid_id, title, date, "stream")
-        chats    = ytdlp_live_chat(vid_id, title, date)
-        all_msgs = comments + chats
-        for m in all_msgs:
-            upsert_message(m)
-        total += len(all_msgs)
-        db_exec("INSERT OR REPLACE INTO scraped_videos"
-                "(video_id,title,video_date,source_type,comment_count,chat_count)"
-                " VALUES(?,?,?,?,?,?)",
-                (vid_id,title,date,"stream",len(comments),len(chats)))
-        log.info("[%d/%d] %s — %d mesaj (toplam:%d)", i+1,len(videos),vid_id,len(all_msgs),total)
-    return total
+
+    log.info("Toplam %d video taranacak (paralel, max 4 iş parçacığı)", len(videos))
+
+    total_saved = 0
+    n = len(videos)
+
+    # Paralel yorum/chat çekimi — yt-dlp süreçleri CPU/IO bound
+    # max_workers=4: disk I/O + network doymadan önce ideal denge
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        future_map = {
+            pool.submit(_scrape_one_video, vid, i + 1, n, emit_fn): vid
+            for i, vid in enumerate(videos)
+        }
+        for future in as_completed(future_map):
+            vid = future_map[future]
+            try:
+                _, _, saved = future.result()
+                total_saved += saved
+            except Exception as e:
+                log.error("Video tarama hatası %s: %s", vid.get("video_id"), e)
+
+    log.info("✅ Tam tarama tamamlandı: %d mesaj kaydedildi", total_saved)
+    return total_saved
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # § 6b — NLP TABANLI OTOMATİK CANLI YAYIN TEKRAR SOHBETİ ÇEKME
@@ -1400,9 +1921,11 @@ def nlp_full_channel_scan(channel_url: str = None,
                            date_from: str = None,
                            date_to:   str = None) -> Dict:
     """
-    Kanalın tüm canlı yayın tekrarları için NLP tabanlı tam tarama.
+    NLP tabanlı tam kanal taraması.
+    HEM /videos (normal video yorumları) HEM /streams (canlı yayın tekrarları)
     2023-2026 arası @ShmirchikArt varsayılan.
     """
+    # Kanal URL'sini kanal kökünden başlat — _candidate_channel_urls her iki sayfayı açar
     channel_url = channel_url or CFG["channel_url"]
     date_from   = date_from   or CFG.get("date_from","2023-01-01")
     date_to     = date_to     or CFG.get("date_to","2026-12-31")
@@ -1994,57 +2517,122 @@ def build_sim_matrix(users: List[str]) -> Tuple[List[str],np.ndarray]:
     return users,sim
 
 def run_clustering(users: List[str] = None) -> dict:
+    """
+    Kullanıcı kümelemesi.
+    DÜZELTME: Sadece gerçekten mesajı olan kullanıcıları kümele.
+    Mesajsız kullanıcılar anlamsız "empty" embedding alır ve
+    tüm benzerlik matrisini bozar — bunlar filtrelenir.
+    Mesajsız profiller DB'de GREEN olarak işaretlenir.
+    """
+    # Mesajsız profillere varsayılan GREEN ata (UNKNOWN yerine)
+    db_exec(
+        "UPDATE user_profiles SET threat_level='GREEN' "
+        "WHERE (threat_level IS NULL OR threat_level='') AND msg_count=0"
+    )
+
     if users is None:
-        rows = db_exec("SELECT author FROM user_profiles",fetch="all") or []
+        # Sadece gerçek mesajı olan kullanıcılar — O(n^2) matris için kritik
+        rows = db_exec(
+            "SELECT DISTINCT up.author FROM user_profiles up "
+            "INNER JOIN messages m ON m.author=up.author "
+            "WHERE m.deleted=0 GROUP BY up.author HAVING COUNT(m.id)>0",
+            fetch="all"
+        ) or []
         users = [r["author"] for r in rows]
+
     if len(users) < 3:
-        return {"error":"Yeterli kullanıcı yok","clusters":{},"graph_data":{"nodes":[],"links":[]}}
-    log.info("Kümeleme: %d kullanıcı", len(users))
+        return {
+            "error": f"Kümeleme için yeterli aktif kullanıcı yok (mevcut: {len(users)})",
+            "clusters": {}, "graph_data": {"nodes": [], "links": []}
+        }
+
+    # Büyük kullanıcı setlerini örnekle (performans)
+    MAX_CLUSTER_USERS = 500
+    if len(users) > MAX_CLUSTER_USERS:
+        log.warning(
+            "Kümeleme: %d kullanıcı > MAX=%d, en yüksek tehdit skorlu %d alınıyor",
+            len(users), MAX_CLUSTER_USERS, MAX_CLUSTER_USERS
+        )
+        scored = db_exec(
+            f"SELECT author, threat_score FROM user_profiles "
+            f"WHERE author IN ({','.join(['?']*len(users))}) "
+            f"ORDER BY threat_score DESC LIMIT ?",
+            tuple(users) + (MAX_CLUSTER_USERS,),
+            fetch="all"
+        ) or []
+        users = [r["author"] for r in scored]
+
+    log.info("Kümeleme başlıyor: %d aktif kullanıcı", len(users))
     user_list, sim_mat = build_sim_matrix(users)
-    G          = build_graph(user_list, sim_mat)
-    louvain    = louvain_cluster(G)
-    pr         = pagerank(G)
-    db_labels  = dbscan_cluster(sim_mat)
+    G         = build_graph(user_list, sim_mat)
+    louvain   = louvain_cluster(G)
+    pr        = pagerank(G)
+    db_labels = dbscan_cluster(sim_mat)
+
     # Kimlik eşleşmeleri kaydet
-    thr = CFG.get("similarity_threshold",0.65)
+    thr = CFG.get("similarity_threshold", 0.65)
     for i in range(len(user_list)):
-        for j in range(i+1,len(user_list)):
-            s = float(sim_mat[i,j])
+        for j in range(i + 1, len(user_list)):
+            s = float(sim_mat[i, j])
             if s >= thr:
-                db_exec("INSERT OR IGNORE INTO identity_links"
-                        "(user_a,user_b,sim_score,method,confidence)"
-                        " VALUES(?,?,?,?,?)",
-                        (user_list[i],user_list[j],round(s,4),"combined",round(s,4)))
+                db_exec(
+                    "INSERT OR IGNORE INTO identity_links"
+                    "(user_a,user_b,sim_score,method,confidence)"
+                    " VALUES(?,?,?,?,?)",
+                    (user_list[i], user_list[j], round(s, 4), "combined", round(s, 4))
+                )
+
     # Küme liderleri (PageRank)
-    clusters = {}
-    for u,cid in louvain.items():
-        clusters.setdefault(cid,[]).append(u)
-    leaders = {cid:max(members,key=lambda x:pr.get(x,0))
-               for cid,members in clusters.items()}
-    for cid,members in clusters.items():
-        db_exec("INSERT INTO graph_clusters(cluster_id,members,algorithm,pagerank_leaders)"
-                " VALUES(?,?,?,?)",
-                (cid,json.dumps(members),"louvain",json.dumps({cid:leaders.get(cid,"")})))
-        # Kullanıcı profil güncelle
-        for m in members:
-            upsert_profile(m,{"cluster_id":cid,"pagerank_score":round(pr.get(m,0),5)})
-    # D3.js için
-    graph_data = {
-        "nodes":[{"id":u,"group":int(louvain.get(u,0)),
-                  "pagerank":round(pr.get(u,0),5),
-                  "threat":db_exec("SELECT threat_level FROM user_profiles WHERE author=?",
-                                   (u,),fetch="one")["threat_level"]
-                  if db_exec("SELECT threat_level FROM user_profiles WHERE author=?",
-                             (u,),fetch="one") else "GREEN"}
-                 for u in user_list],
-        "links":[{"source":u,"target":v,"value":round(float(G[u][v]["weight"]),3)}
-                 for u,v in G.edges()],
+    clusters: Dict[int, List[str]] = {}
+    for u, cid in louvain.items():
+        clusters.setdefault(cid, []).append(u)
+
+    leaders = {
+        cid: max(members, key=lambda x: pr.get(x, 0))
+        for cid, members in clusters.items()
     }
-    log.info("✅ Kümeleme tamamlandı: %d küme", len(clusters))
-    return {"clusters":clusters,"graph_data":graph_data,
-            "dbscan":dict(zip(user_list,db_labels.tolist())),
-            "pagerank":{u:round(pr.get(u,0),5) for u in user_list},
-            "leaders":leaders}
+    for cid, members in clusters.items():
+        db_exec(
+            "INSERT INTO graph_clusters(cluster_id,members,algorithm,pagerank_leaders)"
+            " VALUES(?,?,?,?)",
+            (cid, json.dumps(members), "louvain", json.dumps({cid: leaders.get(cid, "")}))
+        )
+        for m in members:
+            upsert_profile(m, {"cluster_id": cid, "pagerank_score": round(pr.get(m, 0), 5)})
+
+    # Tehdit seviyesini tek sorguda al (N+1 sorgu yerine)
+    threat_map: Dict[str, str] = {}
+    if user_list:
+        rows_t = db_exec(
+            f"SELECT author, threat_level FROM user_profiles "
+            f"WHERE author IN ({','.join(['?']*len(user_list))})",
+            tuple(user_list), fetch="all"
+        ) or []
+        threat_map = {r["author"]: (r["threat_level"] or "GREEN") for r in rows_t}
+
+    graph_data = {
+        "nodes": [
+            {
+                "id":       u,
+                "group":    int(louvain.get(u, 0)),
+                "pagerank": round(pr.get(u, 0), 5),
+                "threat":   threat_map.get(u, "GREEN"),
+            }
+            for u in user_list
+        ],
+        "links": [
+            {"source": u, "target": v, "value": round(float(G[u][v]["weight"]), 3)}
+            for u, v in G.edges()
+        ],
+    }
+    log.info("✅ Kümeleme tamamlandı: %d küme, %d kullanıcı", len(clusters), len(user_list))
+    return {
+        "clusters":   clusters,
+        "graph_data": graph_data,
+        "dbscan":     dict(zip(user_list, db_labels.tolist())),
+        "pagerank":   {u: round(pr.get(u, 0), 5) for u in user_list},
+        "leaders":    leaders,
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # § 14 — Q-LEARNING & DQN (Katman 9)
@@ -3456,8 +4044,9 @@ let nlpChart = null;
 function nlpChannelScan(){
   if(!confirm('NLP tam kanal taraması başlatılsın?\n@ShmirchikArt · 2023-2026\nBu işlem uzun sürebilir.')) return;
   $('#nlp-status').html('<span class="spin"></span> NLP kanal taraması başlatıldı...');
+  // channel_url backend config'den alınır (hard-code yok)
   $.post('/api/nlp/channel-scan',{
-    channel_url:'https://www.youtube.com/@ShmirchikArt/streams',
+    channel_url:'',
     date_from:'2023-01-01', date_to:'2026-12-31'
   },function(d){
     status('✅ '+d.message, 5000);
@@ -3578,8 +4167,25 @@ def create_app():
     if _FLASK_CORS:
         CORS(app)
 
-    async_mode = "eventlet" if _FLASK and _try_import("eventlet") else "threading"
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode=async_mode)
+    # eventlet varsa kullan; bad file descriptor hataları loglama düzeyinde bastır
+    _ev_mod, _HAS_EVENTLET = _try_import("eventlet")
+    async_mode = "eventlet" if _HAS_EVENTLET else "threading"
+
+    import logging as _logging
+    # eventlet socket shutdown hatalarını INFO yerine DEBUG'a bastır
+    _logging.getLogger("socketio").setLevel(_logging.WARNING)
+    _logging.getLogger("engineio").setLevel(_logging.WARNING)
+    _logging.getLogger("engineio.server").setLevel(_logging.WARNING)
+
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins="*",
+        async_mode=async_mode,
+        logger=False,
+        engineio_logger=False,
+        ping_timeout=60,
+        ping_interval=25,
+    )
 
     global _sio
     _sio = socketio
@@ -3703,13 +4309,25 @@ def create_app():
 
     @app.route("/api/analyze/all", methods=["POST"])
     def api_analyze_all():
-        rows=db_exec("SELECT DISTINCT author FROM messages WHERE deleted=0",fetch="all") or []
-        n=0
-        for r in rows:
-            try: analyze_user(r["author"], run_ollama=False); n+=1
-            except: pass
+        from concurrent.futures import ThreadPoolExecutor
+        rows = db_exec("SELECT DISTINCT author FROM messages WHERE deleted=0", fetch="all") or []
+        authors = [r["author"] for r in rows]
+        n = 0
+
+        def _analyze_one(author):
+            try:
+                analyze_user(author, run_ollama=False)
+                return 1
+            except Exception as e:
+                log.debug("Analiz hatası @%s: %s", author, e)
+                return 0
+
+        # GPU paylaşımı: max 8 thread (BART/SBERT GPU sıralaması için)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(_analyze_one, authors))
+        n = sum(results)
         _qtable.save()
-        return jsonify({"analyzed":n})
+        return jsonify({"analyzed": n})
 
     @app.route("/api/analyze/message", methods=["POST"])
     def api_analyze_msg():
@@ -3819,7 +4437,10 @@ def create_app():
 
     @app.route("/api/pagerank")
     def api_pagerank():
-        rows=db_exec("SELECT author,pagerank_score FROM user_profiles WHERE pagerank_score>0"
+        with _get_conn() as c:
+            cols = _table_columns(c, "user_profiles")
+        author_col = "author" if "author" in cols else ("username" if "username" in cols else "author")
+        rows=db_exec(f"SELECT {author_col} AS author,pagerank_score FROM user_profiles WHERE pagerank_score>0"
                      " ORDER BY pagerank_score DESC LIMIT 50",fetch="all") or []
         return jsonify({"scores":{r["author"]:r["pagerank_score"] for r in rows}})
 
@@ -3874,12 +4495,13 @@ def create_app():
     @app.route("/api/nlp/channel-scan", methods=["POST"])
     def api_nlp_channel_scan():
         """
-        NLP tabanlı tam kanal taraması — @ShmirchikArt 2023-2026
-        Tüm canlı yayın tekrarlarını otomatik analiz eder.
+        NLP tabanlı tam kanal taraması.
+        HEM /videos HEM /streams — tüm yorumlar + canlı chat.
+        channel_url boş gelirse CFG'den alınır (hard-code yok).
         """
-        channel_url = request.form.get("channel_url", CFG["channel_url"])
-        date_from   = request.form.get("date_from",   CFG.get("date_from","2023-01-01"))
-        date_to     = request.form.get("date_to",     CFG.get("date_to","2026-12-31"))
+        channel_url = (request.form.get("channel_url") or "").strip() or CFG["channel_url"]
+        date_from   = (request.form.get("date_from")   or "").strip() or CFG.get("date_from","2023-01-01")
+        date_to     = (request.form.get("date_to")     or "").strip() or CFG.get("date_to","2026-12-31")
         def _bg():
             try:
                 result = nlp_full_channel_scan(channel_url, date_from, date_to)
@@ -3934,38 +4556,53 @@ def create_app():
     @app.route("/api/scrape", methods=["POST"])
     def api_scrape():
         def _run():
+            from concurrent.futures import ThreadPoolExecutor
             def em(d):
                 if _sio:
-                    try: _sio.emit("scrape_progress",d,namespace="/ws")
+                    try: _sio.emit("scrape_progress", d, namespace="/ws")
                     except: pass
-            total=full_scrape(em)
+
+            total = full_scrape(em)
+
             # TF-IDF güncelle
-            rows=db_exec("SELECT message FROM messages LIMIT 10000",fetch="all") or []
-            if rows: fit_tfidf([r["message"] for r in rows])
-            # ── BUG FIX: Scrape sonrası kullanıcı profillerini otomatik analiz et ──
-            # Önceden user_profiles boş kalıyordu → tüm istatistikler 0 görünüyordu
-            analyzed = 0
+            rows = db_exec("SELECT message FROM messages LIMIT 10000", fetch="all") or []
+            if rows:
+                fit_tfidf([r["message"] for r in rows])
+
+            # ── Scrape sonrası paralel kullanıcı analizi ──────────────────────
             authors_rows = db_exec(
                 "SELECT DISTINCT author FROM messages WHERE deleted=0", fetch="all") or []
-            for ar in authors_rows:
+            authors = [ar["author"] for ar in authors_rows]
+
+            def _analyze_one(a):
                 try:
-                    analyze_user(ar["author"], run_ollama=False)
-                    analyzed += 1
+                    analyze_user(a, run_ollama=False)
+                    return 1
                 except Exception as e:
-                    log.debug("Otomatik analiz @%s: %s", ar["author"], e)
+                    log.debug("Scrape sonrası analiz @%s: %s", a, e)
+                    return 0
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(_analyze_one, authors))
+            analyzed = sum(results)
+
             _qtable.save()
-            log.info("✅ Scrape sonrası %d kullanıcı otomatik analiz edildi", analyzed)
-            # Konu modeli (yeterli veri varsa)
+            log.info("✅ Scrape sonrası %d kullanıcı analiz edildi", analyzed)
+
+            # Konu modeli
             if len(rows) >= 30:
                 try: fit_topics([r["message"] for r in rows])
                 except: pass
+
             if _sio:
-                try: _sio.emit("scrape_done",
-                               {"total_messages":total,"analyzed_users":analyzed},
-                               namespace="/ws")
+                try:
+                    _sio.emit("scrape_done",
+                              {"total_messages": total, "analyzed_users": analyzed},
+                              namespace="/ws")
                 except: pass
-        threading.Thread(target=_run,daemon=True).start()
-        return jsonify({"success":True,"message":"Tarama ve otomatik analiz başlatıldı"})
+
+        threading.Thread(target=_run, daemon=True).start()
+        return jsonify({"success": True, "message": "Tarama ve paralel analiz başlatıldı"})
 
     # ── Inspect Accounts ──────────────────────────────────────────────────────
     @app.route("/api/inspect/new-accounts", methods=["POST"])
@@ -4010,7 +4647,7 @@ def create_app():
                     pass
 
         threading.Thread(target=_bg,daemon=True).start()
-        return jsonify({"success":True,"message":"Giriş Firefox'ta başlatıldı..."})
+        return jsonify({"success":True,"message":"Giriş Chromium'da başlatıldı..."})
 
     # ── Live Monitor ──────────────────────────────────────────────────────────
     @app.route("/api/live/start", methods=["POST"])
@@ -4122,7 +4759,7 @@ def main():
     parser = argparse.ArgumentParser(description="YT Guardian v2.0 — Tek Dosya Moderasyon Sistemi")
     parser.add_argument("--scrape",      action="store_true", help="Sadece kanal tarama yap")
     parser.add_argument("--analyze-all", action="store_true", help="Tüm kullanıcıları analiz et")
-    parser.add_argument("--port",  type=int, default=CFG.get("flask_port",5050))
+    parser.add_argument("--port",  type=int, default=CFG.get("flask_port",5000))
     parser.add_argument("--config",type=str, default="yt_guardian_config.json")
     parser.add_argument("--headless",    action="store_true", help="Firefox headless modda aç")
     parser.add_argument("--login",       action="store_true", help="Başlarken YouTube'a giriş yap")
