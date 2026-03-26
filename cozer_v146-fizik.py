@@ -2039,7 +2039,8 @@ def inspect_account(driver, channel_id: str) -> dict:
     if not driver or not channel_id: return {}
     if channel_id in _acct_cache: return _acct_cache[channel_id]
     r = {"channel_id":channel_id,"account_created":"","subscriber_count":0,
-         "video_count":0,"is_new_account":False,"about_text":""}
+         "video_count":0,"is_new_account":False,"about_text":"",
+         "youtube_channel_url":f"https://www.youtube.com/channel/{channel_id}"}
     try:
         driver.get(f"https://www.youtube.com/channel/{channel_id}/about")
         time.sleep(3)
@@ -3748,19 +3749,50 @@ function showUser(author){
     h+=`<div style="display:flex;gap:7px;margin-top:14px;flex-wrap:wrap">
       <button class="btn" onclick="analyzeUser('${author}');closeModal()">⚡ Yeniden Analiz</button>
       <button class="btn ghost" onclick="closeModal();nav('messages',document.querySelector('.ni:nth-child(3)'));$('#mauth').val('${author}');debMsg()">💬 Mesajlar</button>
-      <button class="btn ghost" onclick="inspectAccount('${author}')">🔎 Hesap Detayı</button>
+      <button class="btn ghost" onclick="toggleAccountDetail('${author}')">🔎 Hesap Detayı</button>
       <button class="btn red" onclick="banUser('${author}')">🚫 Yasakla</button>
     </div>`;
+    h+=`<div id="modal-account-detail" class="card" style="margin-top:10px;display:none"></div>`;
     $('#modal-body').html(h);
   });
 }
 
-function inspectAccount(author){
+function toggleAccountDetail(author){
+  const box = $('#modal-account-detail');
+  if(!box.length){ inspectAccount(author); return; }
+  const opened = box.is(':visible');
+  if(opened){
+    box.slideUp(120);
+    return;
+  }
+  box.html('<span class="spin"></span> YouTube hesap detayları yükleniyor...').slideDown(120);
+  inspectAccount(author, true);
+}
+
+function inspectAccount(author, renderToModal=false){
   $('#insp-result').html('<span class="spin"></span>');
   $.get('/api/user/'+encodeURIComponent(author)+'/account',function(d){
-    if(d.error){$('#insp-result').html('<span style="color:var(--red)">'+d.error+'</span>');return;}
+    if(d.error){
+      $('#insp-result').html('<span style="color:var(--red)">'+d.error+'</span>');
+      if(renderToModal){
+        $('#modal-account-detail').html('<span style="color:var(--red)">'+d.error+'</span>').show();
+      }
+      return;
+    }
+    const ytLink = d.youtube_channel_url
+      ? `<a href="${d.youtube_channel_url}" target="_blank" rel="noopener" style="margin-left:6px">Kanala Git ↗</a>`
+      : '';
     $('#insp-result').html(`Oluşturma: <b>${d.account_created||'?'}</b> | Abone: <b>${d.subscriber_count}</b>
       | Video: <b>${d.video_count}</b> | Yeni Hesap: <b style="color:${d.is_new_account?'var(--ylw)':'var(--grn)'}">${d.is_new_account?'EVET':'HAYIR'}</b>`);
+    if(renderToModal){
+      $('#modal-account-detail').html(`
+        <h3>🔎 HESAP-DETAYI</h3>
+        <div class="dr"><label>YouTube Kayıt Tarihi</label><span><b>${d.account_created||'Bilinmiyor'}</b></span></div>
+        <div class="dr"><label>Kanal Linki</label><span>${ytLink||'Bağlantı yok'}</span></div>
+        <div class="dr"><label>Abone</label><span>${(d.subscriber_count||0).toLocaleString()}</span></div>
+        <div class="dr"><label>Video</label><span>${d.video_count||0}</span></div>
+      `).show();
+    }
     loadUsers();
   });
 }
@@ -4327,7 +4359,10 @@ def create_app():
                 "video_count":      info.get("video_count",0),
                 "is_new_account":   int(info.get("is_new_account",False))
             })
-        return jsonify(info or {"error":"Bilgi alınamadı"})
+        payload = info or {}
+        if payload and not payload.get("youtube_channel_url"):
+            payload["youtube_channel_url"] = f"https://www.youtube.com/channel/{row['author_cid']}"
+        return jsonify(payload or {"error":"Bilgi alınamadı"})
 
     @app.route("/api/user/<path:author>/links")
     def api_user_links(author):
