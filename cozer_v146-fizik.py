@@ -394,6 +394,74 @@ def upsert_profile(author: str, upd: dict):
         db_exec(f"UPDATE user_profiles SET {sets}, updated_at=strftime('%s','now') WHERE author=?",
                 tuple(upd.values())+(author,))
 
+
+def backfill_profiles_and_messages(video_id: str = "", title: str = "", video_date: str = "") -> dict:
+    """
+    Mesajlardan eksik kullanıcı/profil alanlarını toplu tamamlar.
+    - user_profiles'ta olmayan author'ları ekler
+    - msg_count / video_count / first_seen / last_seen alanlarını günceller
+    - author_cid boşsa messages tablosundan doldurur
+    - İstenen video için messages.title / messages.video_date eksiklerini tamamlar
+    """
+    where = "WHERE deleted=0"
+    params: tuple = ()
+    if video_id:
+        where += " AND video_id=?"
+        params = (video_id,)
+
+    # 1) Eksik profilleri ekle (seçilen video veya tüm DB)
+    ins_sql = ("INSERT OR IGNORE INTO user_profiles(author) "
+               f"SELECT DISTINCT author FROM messages {where}")
+    db_exec(ins_sql, params)
+
+    # 2) Seçili kapsamda etkilenen yazarları bul
+    rows = db_exec(f"SELECT DISTINCT author FROM messages {where}", params, fetch="all") or []
+    authors = [r.get("author","") for r in rows if (r.get("author") or "").strip()]
+    if not authors:
+        return {"authors_backfilled": 0, "video_scoped": bool(video_id)}
+
+    q_marks = ",".join(["?"] * len(authors))
+    auth_params = tuple(authors)
+
+    # 3) Profil metriklerini tüm mesaj geçmişine göre güncelle (global doğruluk)
+    db_exec(
+        "UPDATE user_profiles"
+        " SET msg_count = (SELECT COUNT(*) FROM messages m WHERE m.author=user_profiles.author AND m.deleted=0),"
+        "     video_count = (SELECT COUNT(DISTINCT m.video_id) FROM messages m WHERE m.author=user_profiles.author AND m.deleted=0),"
+        "     first_seen = (SELECT MIN(CASE WHEN m.timestamp>0 THEN m.timestamp ELSE NULL END)"
+        "                  FROM messages m WHERE m.author=user_profiles.author AND m.deleted=0),"
+        "     last_seen = (SELECT MAX(CASE WHEN m.timestamp>0 THEN m.timestamp ELSE NULL END)"
+        "                 FROM messages m WHERE m.author=user_profiles.author AND m.deleted=0),"
+        "     updated_at = strftime('%s','now')"
+        f" WHERE author IN ({q_marks})",
+        auth_params
+    )
+
+    # 4) author_cid boşsa messages'taki dolu değerden tamamla
+    db_exec(
+        "UPDATE user_profiles"
+        " SET author_cid = ("
+        "   SELECT m.author_cid FROM messages m"
+        "   WHERE m.author=user_profiles.author"
+        "     AND COALESCE(m.author_cid,'')<>''"
+        "   ORDER BY m.timestamp DESC LIMIT 1"
+        " ),"
+        " updated_at = strftime('%s','now')"
+        f" WHERE author IN ({q_marks}) AND COALESCE(author_cid,'')=''",
+        auth_params
+    )
+
+    # 5) Mesaj tarafında eksik metadata'yı tamamla (video özelinde)
+    if video_id and (title or video_date):
+        if title:
+            db_exec("UPDATE messages SET title=? WHERE video_id=? AND COALESCE(title,'')=''",
+                    (title, video_id))
+        if video_date:
+            db_exec("UPDATE messages SET video_date=? WHERE video_id=? AND COALESCE(video_date,'')=''",
+                    (video_date, video_id))
+
+    return {"authors_backfilled": len(authors), "video_scoped": bool(video_id)}
+
 def get_user_msgs(author: str) -> List[Dict]:
     rows = db_exec("SELECT * FROM messages WHERE author=? AND deleted=0 ORDER BY timestamp",
                    (author,), fetch="all")
@@ -1884,6 +1952,9 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         upsert_message(m)
         saved += 1
 
+    # 3b. Yeni/eksik verileri ilgili video için tüm kullanıcı ve mesajlara tamamla
+    backfill_stats = backfill_profiles_and_messages(video_id=video_id, title=title, video_date=video_date)
+
     # 4. TF-IDF güncelle
     all_db_texts = db_exec("SELECT message FROM messages LIMIT 5000", fetch="all") or []
     if all_db_texts:
@@ -1938,6 +2009,7 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         "timeline":          timeline,
         "topics":            topics,
         "threat_users":      analyzed[:20],
+        "backfill":          backfill_stats,
     }
     log.info("✅ NLP Replay Chat tamamlandı: %s → %d mesaj, %d tehdit",
              video_id, saved, len(coordinated))
@@ -2047,6 +2119,13 @@ def _extract_video_id_from_url(url: str) -> str:
     if len(clean) == 11:
         return clean
     return ""
+
+
+def _extract_video_id(url: str) -> str:
+    """
+    Geriye dönük uyumluluk: eski çağrılar `_extract_video_id` ismini kullanıyor.
+    """
+    return _extract_video_id_from_url(url)
 
 
 def _fetch_video_metadata(video_id: str) -> dict:
@@ -2189,6 +2268,9 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
             (msgs_saved, matched_slot["video_id"])
         )
 
+    # Takviye sonrası tüm DB'de eksik kullanıcı/profil alanlarını da toparla
+    global_backfill = backfill_profiles_and_messages()
+
     result = {
         "video_id":          video_id,
         "title":             vid_title,
@@ -2199,6 +2281,7 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
         "delta_days":        match_delta_days,
         "empty_slots_found": len(empty_slots),
         "status":            "ok" if msgs_saved > 0 else "no_chat_data",
+        "global_backfill":   global_backfill,
         "nlp_result":        nlp_result,
     }
     log.info("✅ NLP Takviye tamamlandı: %s → %d mesaj kaydedildi, slot=%s",
@@ -4556,6 +4639,14 @@ socket.on('nlp_scan_done', d=>{
 });
 socket.on('nlp_supplement_done', d=>{
   if(d.nlp_result) renderNlpResults(d.nlp_result);
+  if(d.status==='error'){
+    const err = d.error || 'Takviye işlemi sırasında hata oluştu';
+    const errTxt = `❌ ${d.video_id||''}: ${err}`;
+    $('#nlp-supp-status').html(`<span style="color:var(--red)">${errTxt}</span>`);
+    $('#nlp-status').html(`<span style="color:var(--red)">${errTxt}</span>`);
+    status(errTxt, 6000);
+    return;
+  }
   const slotInfo = d.matched_slot
     ? ` · 📍 Slot: <b>${d.matched_slot}</b>${d.slot_date?' ('+d.slot_date+')':''}`
     : ' · (Eşleşen slot bulunamadı, bağımsız kaydedildi)';
@@ -5358,6 +5449,52 @@ def create_app():
                         "channel": channel_url,
                         "date_from": date_from,
                         "date_to": date_to})
+
+    @app.route("/api/nlp/supplement-video", methods=["POST"])
+    def api_nlp_supplement_video():
+        """
+        Eksik replay-chat takviyesi:
+        Kullanıcının verdiği YouTube link/ID'sini çözümler ve arka planda
+        tarih-slot eşleştirmesi + chat replay çekimini başlatır.
+        """
+        raw_url = (request.form.get("video_url") or "").strip()
+        title   = (request.form.get("title") or "").strip()
+        if not raw_url:
+            return jsonify({"success": False, "error": "video_url gerekli"})
+
+        video_id = _extract_video_id(raw_url)
+        if not video_id:
+            return jsonify({"success": False, "error": "Geçerli bir YouTube linki veya Video ID girin"})
+
+        def _bg():
+            try:
+                result = nlp_supplement_video(video_id, title=title)
+                if _sio:
+                    try:
+                        _sio.emit("nlp_supplement_done", result, namespace="/ws")
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.error("NLP takviye API hatası (%s): %s", video_id, e)
+                if _sio:
+                    try:
+                        _sio.emit("nlp_supplement_done", {
+                            "video_id": video_id,
+                            "status": "error",
+                            "messages_saved": 0,
+                            "matched_slot": None,
+                            "slot_date": None,
+                            "error": str(e),
+                        }, namespace="/ws")
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_bg, daemon=True).start()
+        return jsonify({
+            "success": True,
+            "video_id": video_id,
+            "message": f"NLP takviye başlatıldı: {video_id}"
+        })
 
     @app.route("/api/nlp/cluster-chat", methods=["POST"])
     def api_nlp_cluster():
