@@ -2009,6 +2009,203 @@ def nlp_full_channel_scan(channel_url: str = None,
     return summary
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# § 6b — NLP TAKVİYE (Manuel Video Slot Yerleştirme)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _extract_video_id_from_url(url: str) -> str:
+    """
+    YouTube URL'sinden 11 karakterli video ID'sini çıkar.
+    Desteklenen formatlar:
+      https://www.youtube.com/watch?v=VIDEO_ID
+      https://www.youtube.com/watch?v=VIDEO_ID&t=123
+      https://youtu.be/VIDEO_ID
+      https://youtu.be/VIDEO_ID?t=45
+      https://www.youtube.com/embed/VIDEO_ID
+      VIDEO_ID (11 karakter, direkt)
+    """
+    if not url:
+        return ""
+    url = url.strip()
+    # youtu.be/VIDEO_ID
+    m = re.search(r"youtu\.be/([A-Za-z0-9_-]{11})", url)
+    if m:
+        return m.group(1)
+    # youtube.com/watch?v=VIDEO_ID  (& veya sonrası kesilir)
+    m = re.search(r"[?&]v=([A-Za-z0-9_-]{11})", url)
+    if m:
+        return m.group(1)
+    # youtube.com/embed/VIDEO_ID
+    m = re.search(r"/embed/([A-Za-z0-9_-]{11})", url)
+    if m:
+        return m.group(1)
+    # youtube.com/shorts/VIDEO_ID
+    m = re.search(r"/shorts/([A-Za-z0-9_-]{11})", url)
+    if m:
+        return m.group(1)
+    # Direkt 11 karakter ID (boşluk/parametre yok)
+    clean = re.sub(r"[^A-Za-z0-9_-]", "", url)
+    if len(clean) == 11:
+        return clean
+    return ""
+
+
+def _fetch_video_metadata(video_id: str) -> dict:
+    """
+    yt-dlp ile video metadata çek: başlık, tarih (YYYYMMDD), timestamp.
+    Sadece JSON dökümanı çeker, video indirmez.
+    """
+    cmd = _yt_dlp_base_cmd() + [
+        "--skip-download",
+        "--dump-single-json",
+        "--no-warnings",
+        "--ignore-errors",
+        "--extractor-args", "youtube:skip=authcheck",
+        f"https://www.youtube.com/watch?v={video_id}",
+    ]
+    try:
+        res = _run_ytdlp(cmd, timeout=60)
+        if res.returncode != 0 or not (res.stdout or "").strip():
+            log.warning("_fetch_video_metadata: yt-dlp sıfır çıktı — %s", video_id)
+            return {}
+        data = json.loads(res.stdout.strip())
+        title       = (data.get("title") or "").strip()
+        upload_date = (data.get("upload_date") or "").strip()
+        ts_raw      = int(data.get("timestamp") or data.get("release_timestamp") or 0)
+        if not upload_date and ts_raw:
+            upload_date = datetime.fromtimestamp(ts_raw, tz=timezone.utc).strftime("%Y%m%d")
+        if not upload_date:
+            # Görece tarih alanlarından dene
+            for field in ("description", "live_status"):
+                val = str(data.get(field) or "")
+                rel = _parse_relative_date(val)
+                if rel:
+                    upload_date = rel
+                    break
+        return {"title": title, "video_date": upload_date, "timestamp": ts_raw}
+    except json.JSONDecodeError as e:
+        log.warning("_fetch_video_metadata JSON parse hatası %s: %s", video_id, e)
+    except Exception as e:
+        log.warning("_fetch_video_metadata hatası %s: %s", video_id, e)
+    return {}
+
+
+def nlp_supplement_video(video_id: str, title: str = "") -> dict:
+    """
+    Manuel girilen video linkini, kanal taramasında replay-chat verisi
+    çekilemeyen aralıklara algoritmik olarak yerleştirir.
+
+    Algoritma:
+      1. scraped_videos tablosundan chat_count=0 olan ilk N videoyu al
+         (bunlar gerçek zamanlı taramanın boş bıraktığı slotlardır)
+      2. yt-dlp ile verilen video_id'nin tarih/başlık bilgisini çek
+      3. Video tarihi, boş slotlardan biriyle ±7 gün içindeyse → eşleştir
+         Tarih yoksa → tarihi olmayan ilk boş slota fallback
+      4. nlp_auto_replay_chat() ile chat verisini çek ve DB'ye yaz
+      5. scraped_videos kaydını güncelle (source_type='replay_supplement')
+      6. Sonuç raporunu döndür
+    """
+    log.info("📌 NLP Takviye başlıyor: %s", video_id)
+
+    # ── 1. Boş chat slotları ─────────────────────────────────────────────────
+    empty_slots = db_exec(
+        "SELECT video_id, title, video_date, chat_count, scraped_at"
+        " FROM scraped_videos"
+        " WHERE (chat_count IS NULL OR chat_count = 0)"
+        " ORDER BY scraped_at ASC LIMIT 5",
+        fetch="all"
+    ) or []
+    log.info("Boş replay-chat slotu sayısı: %d", len(empty_slots))
+
+    # ── 2. Video metadata ─────────────────────────────────────────────────────
+    vid_meta  = _fetch_video_metadata(video_id)
+    vid_date  = vid_meta.get("video_date", "")
+    vid_title = title or vid_meta.get("title", "") or video_id
+
+    log.info("Takviye video: id=%s  tarih=%s  başlık=%s",
+             video_id, vid_date, vid_title[:50])
+
+    # ── 3. Tarih eşleştirme ───────────────────────────────────────────────────
+    matched_slot: Optional[dict] = None
+    match_delta_days: Optional[int] = None
+
+    if vid_date and empty_slots:
+        try:
+            d_vid = datetime.strptime(vid_date[:8], "%Y%m%d")
+        except ValueError:
+            d_vid = None
+
+        if d_vid:
+            for slot in empty_slots:
+                slot_date = (slot.get("video_date") or "").replace("-", "")
+                if not slot_date:
+                    continue
+                try:
+                    d_slot = datetime.strptime(slot_date[:8], "%Y%m%d")
+                    delta  = abs((d_vid - d_slot).days)
+                    if delta <= 7:
+                        matched_slot      = dict(slot)
+                        match_delta_days  = delta
+                        log.info("✅ Tarih eşleşti: takviye=%s ↔ slot=%s (±%d gün)",
+                                 video_id, slot["video_id"], delta)
+                        break
+                except ValueError:
+                    continue
+
+    # Tarihsiz boş slotlara fallback
+    if matched_slot is None and empty_slots:
+        for slot in empty_slots:
+            if not (slot.get("video_date") or "").strip():
+                matched_slot     = dict(slot)
+                match_delta_days = None
+                log.info("Tarihi bilinmeyen slot fallback: %s", slot["video_id"])
+                break
+
+    if matched_slot:
+        log.info("Eşleşen slot: %s  (delta=%s gün)",
+                 matched_slot["video_id"],
+                 match_delta_days if match_delta_days is not None else "N/A (tarihsiz slot)")
+    else:
+        log.info("Eşleşen slot bulunamadı — bağımsız kayıt yapılacak")
+
+    # ── 4. Chat verisini çek + NLP analiz ────────────────────────────────────
+    nlp_result = nlp_auto_replay_chat(
+        video_id, vid_title, vid_date, auto_analyze=True, filter_spam=True
+    )
+    msgs_saved = nlp_result.get("saved_to_db", 0)
+
+    # ── 5. scraped_videos güncelle ────────────────────────────────────────────
+    db_exec(
+        "INSERT OR REPLACE INTO scraped_videos"
+        " (video_id, title, video_date, source_type, chat_count)"
+        " VALUES (?, ?, ?, 'replay_supplement', ?)",
+        (video_id, vid_title, vid_date, msgs_saved)
+    )
+
+    # Eşleşen slotun chat_count'unu da güncelle
+    if matched_slot and msgs_saved > 0:
+        db_exec(
+            "UPDATE scraped_videos SET chat_count = COALESCE(chat_count,0) + ?"
+            " WHERE video_id = ?",
+            (msgs_saved, matched_slot["video_id"])
+        )
+
+    result = {
+        "video_id":          video_id,
+        "title":             vid_title,
+        "video_date":        vid_date,
+        "messages_saved":    msgs_saved,
+        "matched_slot":      matched_slot["video_id"] if matched_slot else None,
+        "slot_date":         (matched_slot.get("video_date") or "") if matched_slot else None,
+        "delta_days":        match_delta_days,
+        "empty_slots_found": len(empty_slots),
+        "status":            "ok" if msgs_saved > 0 else "no_chat_data",
+        "nlp_result":        nlp_result,
+    }
+    log.info("✅ NLP Takviye tamamlandı: %s → %d mesaj kaydedildi, slot=%s",
+             video_id, msgs_saved, result["matched_slot"])
+    return result
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # § 7 — KULLANICI HESAP ANALİZİ (Selenium)
 # ═══════════════════════════════════════════════════════════════════════════════
 def _parse_sub_count(text: str) -> int:
@@ -3428,6 +3625,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <button class="btn" onclick="analyzeAll()">⚡ Tümünü Analiz Et</button>
     <button class="btn ghost" onclick="doClustering()">🕸️ Kümeleme</button>
     <button class="btn ghost" onclick="inspectNewAccounts()">🆕 Yeni Hesaplar</button>
+    <button class="btn ghost" id="pdf-export-btn" onclick="exportBannedPDF()" style="display:none;background:linear-gradient(135deg,#8B0000,#cc2222);color:#fff;border:none">📄 PDF Analiz</button>
     <span id="ucnt" style="color:var(--tx2);font-size:11px;margin-left:auto"></span>
   </div>
   <table class="tbl">
@@ -3547,6 +3745,28 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
       <button class="btn" onclick="nlpSingleVideo()">▶ Analiz Et</button>
     </div>
   </div>
+  <!-- ── Eksik Replay Takviyesi ─────────────────────────────────────────── -->
+  <div class="card" id="nlp-supplement-card">
+    <h3>📌 Eksik Replay-Chat Takviyesi</h3>
+    <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">
+      Gerçek zamanlı kanal taramasında <b>ilk iki videodan</b> chat verisi çekilemediyse,
+      buraya o döneme ait bir stream linki girin. Algoritma videonun tarih damgasını kontrol
+      ederek veritabanındaki doğru aralığa <b>otomatik</b> yerleştirir.
+      <br><span style="color:var(--acc)">Örnek:</span>
+      <code style="font-size:10px;color:var(--ylw)">https://www.youtube.com/watch?v=qbnnLuT2Qe8&amp;t</code>
+    </p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <input class="inp" id="nlp-supp-url"
+        placeholder="https://www.youtube.com/watch?v=VIDEO_ID  veya  VIDEO_ID"
+        style="flex:2;min-width:280px">
+      <input class="inp" id="nlp-supp-title"
+        placeholder="Video adı (opsiyonel — boş bırakılabilir)"
+        style="flex:1;min-width:180px">
+      <button class="btn" onclick="nlpSupplementVideo()">📥 Aralığa Yerleştir</button>
+    </div>
+    <div id="nlp-supp-status" style="font-size:11px;color:var(--tx2);min-height:18px"></div>
+  </div>
+
   <div id="nlp-results" style="margin-top:8px"></div>
   <div class="card" id="nlp-timeline-card" style="display:none">
     <h3>📈 Mesaj Yoğunluğu Zaman Çizelgesi</h3>
@@ -3666,8 +3886,11 @@ function loadUsers(p){
     (d.users||[]).forEach(u=>{
       const cls=LVL2CLS[u.threat_level]||'G';
       const sp=((u.threat_score||0)*100).toFixed(0);
+      const ytHandle = u.author.replace(/^@+/,'');
       const rowAction = isBannedView
-        ? `<button class="btn ghost" style="font-size:10px;padding:2px 6px" onclick="unbanUser('${u.author}')">✅ Ban Kaldır</button>`
+        ? `<button class="btn ghost" style="font-size:10px;padding:2px 6px" onclick="unbanUser('${u.author}')">✅ Ban Kaldır</button>
+           <a href="https://www.youtube.com/@${ytHandle}" target="_blank" rel="noopener noreferrer"
+              class="btn ghost" style="font-size:10px;padding:2px 6px;text-decoration:none" title="YouTube Kanalı Aç">🔗 Kanal</a>`
         : `<button class="btn red" style="font-size:10px;padding:2px 6px" onclick="banUser('${u.author}')">🚫</button>`;
       h+=`<tr>
         <td><a href="#" onclick="showUser('${u.author}')">${u.author}</a>
@@ -3699,10 +3922,36 @@ function setUsersView(view){
   if(banned){
     $('#tf').prop('disabled', true);
     $('#tf').val('');
+    $('#pdf-export-btn').show();
   } else {
     $('#tf').prop('disabled', false);
+    $('#pdf-export-btn').hide();
   }
   loadUsers(1);
+}
+
+function exportBannedPDF(){
+  const btn = document.getElementById('pdf-export-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Hazırlanıyor...';
+  status('Generating PDF report for all banned users...');
+  fetch('/api/banned/pdf')
+    .then(resp => {
+      if(!resp.ok) return resp.json().then(d=>{throw new Error(d.error||'PDF error')});
+      return resp.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'banned_users_report.pdf';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      status('✅ PDF report downloaded successfully', 4000);
+    })
+    .catch(e => status('❌ PDF Error: ' + e.message, 5000))
+    .finally(() => { btn.disabled=false; btn.innerHTML='📄 PDF Analiz'; });
 }
 
 function analyzeUser(a){
@@ -3802,38 +4051,64 @@ function showUser(author){
 
 function toggleAccountDetail(author){
   const box = $('#modal-account-detail');
-  if(!box.length){ inspectAccount(author); return; }
+  if(!box.length){ _openYTChannel(author); return; }
   const opened = box.is(':visible');
-  if(opened){
-    box.slideUp(120);
-    return;
-  }
-  box.html('<span class="spin"></span> YouTube hesap detayları yükleniyor...').slideDown(120);
-  inspectAccount(author, true);
+  if(opened){ box.slideUp(120); return; }
+
+  // Direkt yeni sekmede aç
+  const handle = author.replace(/^@+/, '');
+  const ytUrl = 'https://www.youtube.com/@' + handle;
+  window.open(ytUrl, '_blank', 'noopener,noreferrer');
+
+  // Kutu: kontrol ediliyor...
+  box.html('<span class="spin"></span> Kanal kontrol ediliyor...').slideDown(120);
+
+  $.get('/api/user/'+encodeURIComponent(author)+'/account', function(d){
+    const url = d.youtube_handle_url || ytUrl;
+    let statusHtml;
+    if(d.channel_exists === true){
+      statusHtml = '<span style="color:var(--grn);font-weight:600">✅ Kanal var</span>';
+    } else if(d.channel_exists === false){
+      statusHtml = '<span style="color:var(--red)">❌ Kanal bulunamadı</span>';
+    } else {
+      statusHtml = '<span style="color:var(--ylw)">⚠️ Durum bilinmiyor</span>';
+    }
+    box.html(
+      `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:4px 0">
+        <a href="${url}" target="_blank" rel="noopener noreferrer"
+           style="color:var(--acc);font-size:13px;font-weight:600;text-decoration:none">
+          🔗 ${url}
+        </a>
+        ${statusHtml}
+      </div>`
+    ).show();
+  }).fail(function(){
+    box.html(
+      `<a href="${ytUrl}" target="_blank" rel="noopener noreferrer"
+         style="color:var(--acc);font-size:13px;font-weight:600;text-decoration:none">
+        🔗 ${ytUrl}
+      </a>`
+    ).show();
+  });
+}
+
+function _openYTChannel(author){
+  const handle = author.replace(/^@+/, '');
+  window.open('https://www.youtube.com/@'+handle,'_blank','noopener,noreferrer');
 }
 
 function inspectAccount(author, renderToModal=false){
   $('#insp-result').html('<span class="spin"></span>');
   $.get('/api/user/'+encodeURIComponent(author)+'/account',function(d){
-    if(d.error){
-      $('#insp-result').html('<span style="color:var(--red)">'+d.error+'</span>');
-      if(renderToModal){
-        $('#modal-account-detail').html('<span style="color:var(--red)">'+d.error+'</span>').show();
-      }
-      return;
-    }
-    const ytLink = d.youtube_channel_url
-      ? `<a href="${d.youtube_channel_url}" target="_blank" rel="noopener" style="margin-left:6px">Kanala Git ↗</a>`
-      : '';
-    $('#insp-result').html(`Oluşturma: <b>${d.account_created||'?'}</b> | Abone: <b>${d.subscriber_count}</b>
-      | Video: <b>${d.video_count}</b> | Yeni Hesap: <b style="color:${d.is_new_account?'var(--ylw)':'var(--grn)'}">${d.is_new_account?'EVET':'HAYIR'}</b>`);
+    const url = d.youtube_handle_url || ('https://www.youtube.com/@'+author.replace(/^@+/,''));
+    const ytLink = `<a href="${url}" target="_blank" rel="noopener" style="margin-left:6px">Kanala Git ↗</a>`;
+    let statusTxt = d.channel_exists===true ? '✅ Kanal var' : d.channel_exists===false ? '❌ Bulunamadı' : '';
+    $('#insp-result').html(`${ytLink} <span style="color:var(--grn)">${statusTxt}</span>`);
     if(renderToModal){
       $('#modal-account-detail').html(`
         <h3>🔎 HESAP-DETAYI</h3>
-        <div class="dr"><label>YouTube Kayıt Tarihi</label><span><b>${d.account_created||'Bilinmiyor'}</b></span></div>
-        <div class="dr"><label>Kanal Linki</label><span>${ytLink||'Bağlantı yok'}</span></div>
-        <div class="dr"><label>Abone</label><span>${(d.subscriber_count||0).toLocaleString()}</span></div>
-        <div class="dr"><label>Video</label><span>${d.video_count||0}</span></div>
+        <div class="dr"><label>Kanal Linki</label><span>${ytLink}</span></div>
+        <div class="dr"><label>Durum</label><span style="color:var(--grn)">${statusTxt||'—'}</span></div>
       `).show();
     }
     loadUsers();
@@ -4279,6 +4554,44 @@ socket.on('nlp_scan_done', d=>{
   $('#nlp-status').html(`✅ Tarama tamamlandı: ${d.videos_scanned} video · ${d.total_messages} mesaj · ${d.coordinated_threats} tehdit`);
   loadDash();
 });
+socket.on('nlp_supplement_done', d=>{
+  if(d.nlp_result) renderNlpResults(d.nlp_result);
+  const slotInfo = d.matched_slot
+    ? ` · 📍 Slot: <b>${d.matched_slot}</b>${d.slot_date?' ('+d.slot_date+')':''}`
+    : ' · (Eşleşen slot bulunamadı, bağımsız kaydedildi)';
+  const statusTxt = d.status==='no_chat_data'
+    ? `⚠️ ${d.video_id}: Chat verisi bulunamadı${slotInfo}`
+    : `✅ ${d.video_id}: ${d.messages_saved} mesaj kaydedildi${slotInfo}`;
+  $('#nlp-supp-status').html(statusTxt);
+  $('#nlp-status').html(statusTxt);
+  loadDash();
+});
+
+// ── NLP TAKVİYE ────────────────────────────────────────────────────────────────
+function nlpSupplementVideo(){
+  const rawUrl = $('#nlp-supp-url').val().trim();
+  if(!rawUrl){ alert('YouTube linki veya Video ID girin'); return; }
+  const title  = $('#nlp-supp-title').val().trim();
+  $('#nlp-supp-status').html('<span class="spin"></span> Video analiz ediliyor, aralığa yerleştiriliyor...');
+  $('#nlp-status').html('<span class="spin"></span> Takviye video işleniyor...');
+  $.post('/api/nlp/supplement-video', {video_url: rawUrl, title: title}, function(d){
+    if(d.success){
+      $('#nlp-supp-status').html(
+        `⚙️ <b>${d.video_id}</b> işleniyor — tarih eşleşmesi ve chat çekimi başlatıldı...`
+      );
+      status('⚙️ Takviye başlatıldı: '+d.video_id, 5000);
+    } else {
+      $('#nlp-supp-status').html(
+        '<span style="color:var(--red)">❌ '+d.error+'</span>'
+      );
+      status('❌ '+d.error, 5000);
+    }
+  }).fail(function(){
+    $('#nlp-supp-status').html(
+      '<span style="color:var(--red)">❌ Sunucu hatası — bağlantı kesildi</span>'
+    );
+  });
+}
 
 $(document).ready(loadDash);
 $(document).on('keydown',e=>{ if(e.key==='Escape') closeModal(); });
@@ -4389,28 +4702,353 @@ def create_app():
         db_exec("UPDATE user_profiles SET game_strategy='BEHAVE' WHERE author=?",(author,))
         return jsonify({"success":True,"message":f"@{author} BAN kaldırıldı"})
 
+    # ── Banned Users PDF Report ───────────────────────────────────────────────
+    @app.route("/api/banned/pdf")
+    def api_banned_pdf():
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import mm
+            from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                            Table, TableStyle, PageBreak, HRFlowable)
+            from reportlab.lib.enums import TA_LEFT, TA_CENTER
+            import io
+
+            # ── Translation helper via deep-translator (Google, no API key needed) ──
+            _trans_cache: Dict[str, str] = {}
+            try:
+                from deep_translator import GoogleTranslator as _GTrans
+                _gtrans_ok = True
+            except ImportError:
+                _gtrans_ok = False
+
+            def translate_to_english(text: str) -> str:
+                """Translate text to English using deep-translator GoogleTranslator.
+                No API key required. Falls back to original text on any error."""
+                if not text or not text.strip():
+                    return text
+                key = hashlib.md5(text.encode()).hexdigest()
+                if key in _trans_cache:
+                    return _trans_cache[key]
+                if not _gtrans_ok:
+                    _trans_cache[key] = text
+                    return text
+                try:
+                    # Chunk if over 4500 chars (Google Translate limit per request)
+                    chunks = [text[i:i+4500] for i in range(0, len(text), 4500)]
+                    translated = " ".join(
+                        _GTrans(source="auto", target="en").translate(chunk)
+                        for chunk in chunks
+                    )
+                    _trans_cache[key] = translated
+                    return translated
+                except Exception as te:
+                    log.warning("deep-translator error: %s", te)
+                    _trans_cache[key] = text
+                    return text
+
+            # ── Pre-build video offset map: video_id -> min_timestamp ────────
+            # Used to compute t= offset for YouTube deep-link URLs
+            video_offset_map: Dict[str, int] = {}
+            vid_rows = db_exec(
+                "SELECT video_id, MIN(timestamp) as min_ts FROM messages "
+                "WHERE timestamp IS NOT NULL AND timestamp > 0 GROUP BY video_id",
+                fetch="all") or []
+            for vr in vid_rows:
+                if vr.get("video_id") and vr.get("min_ts"):
+                    video_offset_map[vr["video_id"]] = int(vr["min_ts"])
+
+            # ── Fetch all banned users ────────────────────────────────────────
+            banned_rows = db_exec(
+                "SELECT * FROM user_profiles WHERE game_strategy='BAN' ORDER BY threat_score DESC",
+                fetch="all") or []
+
+            if not banned_rows:
+                return jsonify({"error": "No banned users found"}), 404
+
+            buf = io.BytesIO()
+            doc = SimpleDocTemplate(buf, pagesize=A4,
+                                    rightMargin=15*mm, leftMargin=15*mm,
+                                    topMargin=15*mm, bottomMargin=15*mm)
+            styles = getSampleStyleSheet()
+            W = A4[0] - 30*mm  # usable width
+
+            # ── Custom styles ─────────────────────────────────────────────────
+            title_style = ParagraphStyle("ReportTitle", parent=styles["Title"],
+                fontSize=22, textColor=colors.HexColor("#8B0000"),
+                spaceAfter=6, alignment=TA_CENTER)
+            sub_style = ParagraphStyle("SubTitle", parent=styles["Normal"],
+                fontSize=10, textColor=colors.HexColor("#888888"),
+                spaceAfter=4, alignment=TA_CENTER)
+            user_style = ParagraphStyle("UserHeader", parent=styles["Heading1"],
+                fontSize=14, textColor=colors.HexColor("#CC0000"),
+                spaceBefore=4, spaceAfter=2)
+            link_style = ParagraphStyle("YTLink", parent=styles["Normal"],
+                fontSize=9, textColor=colors.HexColor("#1565C0"),
+                spaceAfter=6)
+            section_style = ParagraphStyle("Section", parent=styles["Heading2"],
+                fontSize=11, textColor=colors.HexColor("#333333"),
+                spaceBefore=8, spaceAfter=3)
+            msg_style = ParagraphStyle("Msg", parent=styles["Normal"],
+                fontSize=8, textColor=colors.HexColor("#222222"),
+                spaceAfter=1, leading=11)
+            vid_link_style = ParagraphStyle("VidLink", parent=styles["Normal"],
+                fontSize=7, textColor=colors.HexColor("#1565C0"),
+                spaceAfter=0, leading=9)
+
+            THREAT_COLORS = {
+                "CRIMSON": colors.HexColor("#8B0000"),
+                "RED":     colors.HexColor("#E74C3C"),
+                "ORANGE":  colors.HexColor("#E67E22"),
+                "YELLOW":  colors.HexColor("#F1C40F"),
+                "GREEN":   colors.HexColor("#2ECC71"),
+            }
+
+            story = []
+
+            # ── Cover page ────────────────────────────────────────────────────
+            story.append(Spacer(1, 40*mm))
+            story.append(Paragraph("YT GUARDIAN — BANNED USER REPORT", title_style))
+            story.append(Spacer(1, 3*mm))
+            now_utc = datetime.now(timezone.utc)
+            story.append(Paragraph(
+                f"Generated: {now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')} "
+                f"&nbsp;|&nbsp; Total Banned Users: {len(banned_rows)}",
+                sub_style))
+            story.append(Spacer(1, 3*mm))
+            story.append(HRFlowable(width=W, color=colors.HexColor("#8B0000"), thickness=1.5))
+            story.append(Spacer(1, 8*mm))
+
+            # ── Index table ───────────────────────────────────────────────────
+            story.append(Paragraph("BANNED USER INDEX", section_style))
+            toc_data = [["#", "Username", "Threat Level", "Score", "HMM State"]]
+            for i, u in enumerate(banned_rows, 1):
+                toc_data.append([
+                    str(i),
+                    f"@{u.get('author','?')}",
+                    u.get("threat_level", "?"),
+                    f"{(u.get('threat_score', 0) or 0)*100:.1f}%",
+                    u.get("hmm_state", "?"),
+                ])
+            toc_tbl = Table(toc_data, colWidths=[10*mm, 60*mm, 35*mm, 25*mm, 40*mm])
+            toc_tbl.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,0),  colors.HexColor("#1a1a1a")),
+                ("TEXTCOLOR",     (0,0), (-1,0),  colors.white),
+                ("FONTNAME",      (0,0), (-1,0),  "Helvetica-Bold"),
+                ("FONTSIZE",      (0,0), (-1,-1), 8),
+                ("ROWBACKGROUNDS",(0,1), (-1,-1),
+                 [colors.HexColor("#f7f7f7"), colors.white]),
+                ("GRID",          (0,0), (-1,-1), 0.4, colors.HexColor("#cccccc")),
+                ("TOPPADDING",    (0,0), (-1,-1), 3),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+                ("LEFTPADDING",   (0,0), (-1,-1), 5),
+            ]))
+            story.append(toc_tbl)
+            story.append(PageBreak())
+
+            # ── Per-user pages ────────────────────────────────────────────────
+            for idx, u in enumerate(banned_rows, 1):
+                author   = u.get("author", "unknown")
+                handle   = author.lstrip("@")
+                yt_url   = f"https://www.youtube.com/@{handle}"
+                tl       = u.get("threat_level", "?")
+                tl_color = THREAT_COLORS.get(tl, colors.HexColor("#8B0000"))
+
+                # ── User header + YouTube channel link ────────────────────────
+                story.append(Paragraph(f'<b>#{idx} — @{author}</b>', user_style))
+                story.append(Paragraph(
+                    f'YouTube Channel: '
+                    f'<a href="{yt_url}" color="#1565C0"><u>{yt_url}</u></a>',
+                    link_style))
+                story.append(HRFlowable(width=W, color=tl_color, thickness=1))
+                story.append(Spacer(1, 2*mm))
+
+                # ── User details table ────────────────────────────────────────
+                story.append(Paragraph("USER DETAILS", section_style))
+                ts_score = (u.get("threat_score",  0)   or 0) * 100
+                bot_prob = (u.get("bot_prob",       0)   or 0) * 100
+                hate_sc  = (u.get("hate_score",     0)   or 0) * 100
+                anti_sc  = (u.get("antisemitism_score",0)or 0) * 100
+                stalker  = (u.get("stalker_score",  0)   or 0) * 100
+                groyper  = (u.get("groyper_score",  0)   or 0) * 100
+                human_sc = (u.get("human_score",    0.5) or 0.5)*100
+                try:
+                    iv = u.get("identity_vector") or "{}"
+                    if isinstance(iv, str): iv = json.loads(iv)
+                    bot_signal = float(iv.get("bot_signal", 0)) * 100
+                except:
+                    bot_signal = 0.0
+
+                def _fmt_ts(epoch):
+                    try:
+                        return datetime.utcfromtimestamp(int(epoch)).strftime(
+                            "%Y-%m-%d %H:%M:%S UTC")
+                    except:
+                        return "?"
+
+                det_data = [
+                    ["Field", "Value"],
+                    ["Threat Level",       f"{tl} ({ts_score:.1f}%)"],
+                    ["Bot Probability",    f"{bot_prob:.1f}%"],
+                    ["Hate Speech Score",  f"{hate_sc:.1f}%"],
+                    ["Anti-Semitism Score",f"{anti_sc:.1f}%"],
+                    ["Groyper Score",      f"{groyper:.1f}%"],
+                    ["Stalker Score",      f"{stalker:.1f}%"],
+                    ["Bot Signal (Hawkes)",f"{bot_signal:.1f}%"],
+                    ["Human Score",        f"{human_sc:.1f}%"],
+                    ["HMM State",          u.get("hmm_state","?") or "?"],
+                    ["Recommended Action", u.get("game_strategy","?") or "?"],
+                    ["Message Count",      str(u.get("msg_count",0) or 0)],
+                    ["Cluster ID",         str(u.get("cluster_id","-") or "-")],
+                    ["Account Created",    u.get("account_created","Unknown") or "Unknown"],
+                    ["Subscriber Count",   str(u.get("subscriber_count",0) or 0)],
+                    ["New Account",        "Yes" if u.get("is_new_account") else "No"],
+                    ["Video Count",        str(u.get("video_count",0) or 0)],
+                    ["PageRank Score",     f"{(u.get('pagerank_score',0) or 0):.4f}"],
+                    ["First Seen",         _fmt_ts(u["first_seen"]) if u.get("first_seen") else "?"],
+                    ["Last Seen",          _fmt_ts(u["last_seen"])  if u.get("last_seen")  else "?"],
+                ]
+                det_tbl = Table(det_data, colWidths=[55*mm, W-55*mm])
+                det_tbl.setStyle(TableStyle([
+                    ("BACKGROUND",    (0,0), (-1,0),  colors.HexColor("#2c2c2c")),
+                    ("TEXTCOLOR",     (0,0), (-1,0),  colors.white),
+                    ("FONTNAME",      (0,0), (-1,0),  "Helvetica-Bold"),
+                    ("FONTSIZE",      (0,0), (-1,-1), 8),
+                    ("ROWBACKGROUNDS",(0,1), (-1,-1),
+                     [colors.HexColor("#fff5f5"), colors.white]),
+                    ("GRID",          (0,0), (-1,-1), 0.3, colors.HexColor("#cccccc")),
+                    ("TOPPADDING",    (0,0), (-1,-1), 3),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+                    ("LEFTPADDING",   (0,0), (-1,-1), 5),
+                    ("BACKGROUND",    (0,1), (0,-1),  colors.HexColor("#f0f0f0")),
+                    ("FONTNAME",      (0,1), (0,-1),  "Helvetica-Bold"),
+                    ("BACKGROUND",    (1,1), (1,1),   tl_color),
+                    ("TEXTCOLOR",     (1,1), (1,1),   colors.white),
+                    ("FONTNAME",      (1,1), (1,1),   "Helvetica-Bold"),
+                ]))
+                story.append(det_tbl)
+                story.append(Spacer(1, 3*mm))
+
+                # ── AI Analysis — translated to English via Ollama ─────────────
+                if u.get("ollama_summary"):
+                    story.append(Paragraph("AI ANALYSIS (Ollama)", section_style))
+                    raw_summary = u["ollama_summary"] or ""
+                    eng_summary = translate_to_english(raw_summary)
+                    eng_summary = eng_summary.replace("<","&lt;").replace(">","&gt;")
+                    story.append(Paragraph(eng_summary, msg_style))
+                    story.append(Spacer(1, 2*mm))
+
+                # ── Message History ───────────────────────────────────────────
+                story.append(Paragraph("MESSAGE HISTORY", section_style))
+                msgs = get_user_msgs(author)
+                if msgs:
+                    # col widths: # | datetime+tz | video title+link | message
+                    msg_data = [["#", "Date / Time", "Video", "Message"]]
+                    for mi, m in enumerate(msgs, 1):
+                        ts  = m.get("timestamp") or 0
+                        vid = m.get("video_id") or ""
+                        src = (m.get("source_type") or "").lower()
+
+                        # ── Datetime with local timezone display ──────────────
+                        try:
+                            dt_utc = datetime.utcfromtimestamp(int(ts))
+                            dt_str = dt_utc.strftime("%Y-%m-%d\n%H:%M:%S UTC")
+                        except:
+                            dt_str = str(ts)
+
+                        # ── Build YouTube video URL with timestamp offset ──────
+                        vid_title = (m.get("title") or "").strip()
+                        if vid and vid.strip():
+                            # Calculate seconds offset from video start
+                            vid_start = video_offset_map.get(vid, 0)
+                            offset_s  = max(0, int(ts) - int(vid_start)) if ts and vid_start else 0
+                            # Subtract a few seconds so context is visible
+                            offset_s  = max(0, offset_s - 5)
+                            yt_vid_url = (
+                                f"https://www.youtube.com/watch?v={vid}&t={offset_s}s"
+                            )
+                            if not vid_title:
+                                vid_title = vid
+                            # Escape for XML/reportlab
+                            title_esc = vid_title.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:80]
+                            url_esc   = yt_vid_url.replace("&","&amp;")
+                            vid_cell  = Paragraph(
+                                f'<b>{title_esc}</b><br/>'
+                                f'<a href="{url_esc}" color="#1565C0">'
+                                f'<u>▶ Open at {offset_s}s</u></a>',
+                                vid_link_style)
+                        else:
+                            vid_title_esc = (vid_title or src or "?").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:60]
+                            vid_cell = Paragraph(vid_title_esc or src or "?", vid_link_style)
+
+                        text = (m.get("message") or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:300]
+                        msg_data.append([
+                            str(mi),
+                            Paragraph(dt_str, msg_style),
+                            vid_cell,
+                            Paragraph(text, msg_style),
+                        ])
+
+                    msg_tbl = Table(msg_data,
+                                    colWidths=[8*mm, 32*mm, 55*mm, W-95*mm])
+                    msg_tbl.setStyle(TableStyle([
+                        ("BACKGROUND",    (0,0), (-1,0),  colors.HexColor("#2c2c2c")),
+                        ("TEXTCOLOR",     (0,0), (-1,0),  colors.white),
+                        ("FONTNAME",      (0,0), (-1,0),  "Helvetica-Bold"),
+                        ("FONTSIZE",      (0,0), (-1,-1), 8),
+                        ("ROWBACKGROUNDS",(0,1), (-1,-1),
+                         [colors.HexColor("#fff8f8"), colors.white]),
+                        ("GRID",          (0,0), (-1,-1), 0.3, colors.HexColor("#dddddd")),
+                        ("TOPPADDING",    (0,0), (-1,-1), 3),
+                        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+                        ("LEFTPADDING",   (0,0), (-1,-1), 4),
+                        ("VALIGN",        (0,0), (-1,-1), "TOP"),
+                    ]))
+                    story.append(msg_tbl)
+                else:
+                    story.append(Paragraph("No messages found for this user.", msg_style))
+
+                if idx < len(banned_rows):
+                    story.append(PageBreak())
+
+            doc.build(story)
+            buf.seek(0)
+            ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fname  = f"banned_users_report_{ts_str}.pdf"
+            from flask import send_file
+            return send_file(buf, mimetype="application/pdf",
+                             as_attachment=True, download_name=fname)
+
+        except Exception as e:
+            log.exception("PDF generation error: %s", e)
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/api/user/<path:author>/account")
     def api_user_account(author):
-        row=db_exec("SELECT author_cid FROM user_profiles WHERE author=?",(author,),fetch="one")
-        stored_cid = (row["author_cid"] if row else "") or ""
-        resolved_cid = resolve_author_channel_id(_driver, author, stored_cid)
-        if not resolved_cid:
-            return jsonify({"error":"Channel ID bulunamadı — kullanıcı handle üzerinden de çözümlenemedi"})
-        if resolved_cid != stored_cid:
-            db_exec("UPDATE user_profiles SET author_cid=? WHERE author=?", (resolved_cid, author))
-        info=inspect_account(_driver, resolved_cid)
-        if info:
-            upsert_profile(author,{
-                "author_cid":       resolved_cid,
-                "account_created":  info.get("account_created",""),
-                "subscriber_count": info.get("subscriber_count",0),
-                "video_count":      info.get("video_count",0),
-                "is_new_account":   int(info.get("is_new_account",False))
-            })
-        payload = info or {}
-        if payload and not payload.get("youtube_channel_url"):
-            payload["youtube_channel_url"] = f"https://www.youtube.com/channel/{resolved_cid}"
-        return jsonify(payload or {"error":"Bilgi alınamadı"})
+        # Handle'ı author alanından doğrudan türet — Selenium gerekmez
+        handle = author.lstrip("@")
+        youtube_handle_url = f"https://www.youtube.com/@{handle}"
+
+        # Kanalın var olup olmadığını basit HTTP isteğiyle kontrol et
+        channel_exists = None
+        try:
+            resp = http_req.get(
+                youtube_handle_url, timeout=8, allow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/124.0.0.0 Safari/537.36"}
+            )
+            channel_exists = resp.status_code == 200
+        except Exception as e:
+            log.debug("YouTube kanal kontrol hatası %s: %s", handle, e)
+            channel_exists = None  # bilinmiyor
+
+        return jsonify({
+            "author":             author,
+            "youtube_handle_url": youtube_handle_url,
+            "channel_exists":     channel_exists,
+        })
 
     @app.route("/api/user/<path:author>/links")
     def api_user_links(author):
