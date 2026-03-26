@@ -2035,6 +2035,49 @@ def _is_new_account(created_str: str, months: int = 6) -> bool:
             except: pass
     return False
 
+def _normalize_author_handle(author: str) -> str:
+    a = (author or "").strip()
+    if not a:
+        return ""
+    if a.startswith("@"):
+        return a
+    return f"@{a.lstrip('@')}"
+
+def _extract_channel_id_from_text(text: str) -> str:
+    if not text:
+        return ""
+    for pat in [
+        r'"externalId"\s*:\s*"(UC[\w-]{20,})"',
+        r'"channelId"\s*:\s*"(UC[\w-]{20,})"',
+        r'youtube\.com/channel/(UC[\w-]{20,})',
+    ]:
+        m = re.search(pat, text)
+        if m:
+            return m.group(1)
+    return ""
+
+def resolve_author_channel_id(driver, author: str, current_cid: str = "") -> str:
+    cid = (current_cid or "").strip()
+    if re.match(r"^UC[\w-]{20,}$", cid):
+        return cid
+    handle = _normalize_author_handle(author)
+    if not driver or not handle:
+        return ""
+    try:
+        # Handle URL'leri üzerinden kanal kimliğini dinamik olarak keşfet
+        for url in [f"https://www.youtube.com/{handle}/about", f"https://www.youtube.com/{handle}"]:
+            driver.get(url)
+            time.sleep(1.5)
+            cid = _extract_channel_id_from_text(getattr(driver, "page_source", "") or "")
+            if cid:
+                return cid
+            cid = _extract_channel_id_from_text(getattr(driver, "current_url", "") or "")
+            if cid:
+                return cid
+    except Exception as e:
+        log.debug("Kanal ID çözümleme hatası %s: %s", author, e)
+    return ""
+
 def inspect_account(driver, channel_id: str) -> dict:
     if not driver or not channel_id: return {}
     if channel_id in _acct_cache: return _acct_cache[channel_id]
@@ -4349,11 +4392,16 @@ def create_app():
     @app.route("/api/user/<path:author>/account")
     def api_user_account(author):
         row=db_exec("SELECT author_cid FROM user_profiles WHERE author=?",(author,),fetch="one")
-        if not row or not row["author_cid"]:
-            return jsonify({"error":"Channel ID bulunamadı — yorumları önce çekin"})
-        info=inspect_account(_driver, row["author_cid"])
+        stored_cid = (row["author_cid"] if row else "") or ""
+        resolved_cid = resolve_author_channel_id(_driver, author, stored_cid)
+        if not resolved_cid:
+            return jsonify({"error":"Channel ID bulunamadı — kullanıcı handle üzerinden de çözümlenemedi"})
+        if resolved_cid != stored_cid:
+            db_exec("UPDATE user_profiles SET author_cid=? WHERE author=?", (resolved_cid, author))
+        info=inspect_account(_driver, resolved_cid)
         if info:
             upsert_profile(author,{
+                "author_cid":       resolved_cid,
                 "account_created":  info.get("account_created",""),
                 "subscriber_count": info.get("subscriber_count",0),
                 "video_count":      info.get("video_count",0),
@@ -4361,7 +4409,7 @@ def create_app():
             })
         payload = info or {}
         if payload and not payload.get("youtube_channel_url"):
-            payload["youtube_channel_url"] = f"https://www.youtube.com/channel/{row['author_cid']}"
+            payload["youtube_channel_url"] = f"https://www.youtube.com/channel/{resolved_cid}"
         return jsonify(payload or {"error":"Bilgi alınamadı"})
 
     @app.route("/api/user/<path:author>/links")
