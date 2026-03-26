@@ -2049,6 +2049,13 @@ def _extract_video_id_from_url(url: str) -> str:
     return ""
 
 
+def _extract_video_id(url: str) -> str:
+    """
+    Geriye dönük uyumluluk: eski çağrılar `_extract_video_id` ismini kullanıyor.
+    """
+    return _extract_video_id_from_url(url)
+
+
 def _fetch_video_metadata(video_id: str) -> dict:
     """
     yt-dlp ile video metadata çek: başlık, tarih (YYYYMMDD), timestamp.
