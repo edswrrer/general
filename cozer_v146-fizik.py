@@ -4556,6 +4556,14 @@ socket.on('nlp_scan_done', d=>{
 });
 socket.on('nlp_supplement_done', d=>{
   if(d.nlp_result) renderNlpResults(d.nlp_result);
+  if(d.status==='error'){
+    const err = d.error || 'Takviye işlemi sırasında hata oluştu';
+    const errTxt = `❌ ${d.video_id||''}: ${err}`;
+    $('#nlp-supp-status').html(`<span style="color:var(--red)">${errTxt}</span>`);
+    $('#nlp-status').html(`<span style="color:var(--red)">${errTxt}</span>`);
+    status(errTxt, 6000);
+    return;
+  }
   const slotInfo = d.matched_slot
     ? ` · 📍 Slot: <b>${d.matched_slot}</b>${d.slot_date?' ('+d.slot_date+')':''}`
     : ' · (Eşleşen slot bulunamadı, bağımsız kaydedildi)';
@@ -5358,6 +5366,52 @@ def create_app():
                         "channel": channel_url,
                         "date_from": date_from,
                         "date_to": date_to})
+
+    @app.route("/api/nlp/supplement-video", methods=["POST"])
+    def api_nlp_supplement_video():
+        """
+        Eksik replay-chat takviyesi:
+        Kullanıcının verdiği YouTube link/ID'sini çözümler ve arka planda
+        tarih-slot eşleştirmesi + chat replay çekimini başlatır.
+        """
+        raw_url = (request.form.get("video_url") or "").strip()
+        title   = (request.form.get("title") or "").strip()
+        if not raw_url:
+            return jsonify({"success": False, "error": "video_url gerekli"})
+
+        video_id = _extract_video_id(raw_url)
+        if not video_id:
+            return jsonify({"success": False, "error": "Geçerli bir YouTube linki veya Video ID girin"})
+
+        def _bg():
+            try:
+                result = nlp_supplement_video(video_id, title=title)
+                if _sio:
+                    try:
+                        _sio.emit("nlp_supplement_done", result, namespace="/ws")
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.error("NLP takviye API hatası (%s): %s", video_id, e)
+                if _sio:
+                    try:
+                        _sio.emit("nlp_supplement_done", {
+                            "video_id": video_id,
+                            "status": "error",
+                            "messages_saved": 0,
+                            "matched_slot": None,
+                            "slot_date": None,
+                            "error": str(e),
+                        }, namespace="/ws")
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_bg, daemon=True).start()
+        return jsonify({
+            "success": True,
+            "video_id": video_id,
+            "message": f"NLP takviye başlatıldı: {video_id}"
+        })
 
     @app.route("/api/nlp/cluster-chat", methods=["POST"])
     def api_nlp_cluster():
