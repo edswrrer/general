@@ -1363,6 +1363,32 @@ def _video_base_timestamp(video_date: str) -> int:
         return int(dt.timestamp())
     except: return 0
 
+def _estimate_watch_seconds(ts: int, video_date: str = "",
+                            min_ts: int = 0, source_type: str = "") -> int:
+    """
+    Mesajın videodaki yaklaşık saniyesini hesaplar.
+    Hard-code yok: yalnızca DB'deki timestamp/video_date bilgisi kullanılır.
+    """
+    try:
+        ts = int(ts or 0)
+    except Exception:
+        return 0
+    if ts <= 0:
+        return 0
+
+    # Unix epoch ise (>= 2001) replay chat için video içi relatif saniyeye indir.
+    if min_ts and min_ts >= 1_000_000_000 and source_type in ("replay_chat", "live_chat", "live"):
+        return max(0, ts - int(min_ts))
+
+    # Zaten offset saniyesi olarak tutulmuş kayıtlar.
+    if ts < 1_000_000_000:
+        return max(0, ts)
+
+    base_ts = _video_base_timestamp(video_date or "")
+    if base_ts and ts >= base_ts:
+        return max(0, ts - base_ts)
+    return 0
+
 def _parse_live_chat_json3(cd: dict, video_id: str, title: str,
                             video_date: str, base_ts: int) -> List[Dict]:
     """JSON3 formatı (.live_chat.json3): events[].segs + tOffsetMs"""
@@ -3739,6 +3765,9 @@ function loadMsgs(p){
         </div>
         <div class="txt">${hl(m.message,q)}</div>
         <div class="msg-acts">
+          ${m.watch_url?`<a class="btn ghost" style="font-size:10px;padding:2px 6px"
+            href="${m.watch_url}" target="_blank" rel="noopener"
+            title="Videoda aç (${m.watch_seconds||0}. sn)">⏱️ Videoda Aç</a>`:''}
           <button class="btn red" style="font-size:10px;padding:2px 6px"
             onclick="delComment('${m.video_id}','${m.author}','${(m.message||'').substring(0,25).replace(/'/g,"\\'")}')">🗑️</button>
         </div>
@@ -4297,7 +4326,58 @@ def create_app():
             f" LEFT JOIN user_profiles up ON m.author=up.author {wh}"
             f" ORDER BY m.timestamp DESC LIMIT ? OFFSET ?",
             tuple(prms)+(sz,off),fetch="all") or []
-        return jsonify({"messages":[dict(r) for r in rows],"total":tot})
+
+        out = [dict(r) for r in rows]
+        if out:
+            # Sayfadaki videolar için min timestamp'leri tek sorguda al.
+            vids = sorted({str(m.get("video_id") or "").strip() for m in out if (m.get("video_id") or "").strip()})
+            ts_map = {}
+            if vids:
+                q_marks = ",".join(["?"] * len(vids))
+                b_rows = db_exec(
+                    f"SELECT video_id, source_type, MIN(timestamp) AS min_ts"
+                    f" FROM messages WHERE video_id IN ({q_marks}) AND timestamp>0"
+                    f" GROUP BY video_id, source_type",
+                    tuple(vids), fetch="all"
+                ) or []
+                ts_map = {
+                    (str(r["video_id"]), str(r["source_type"] or "")): int(r["min_ts"] or 0)
+                    for r in b_rows
+                }
+
+            for m in out:
+                vid = str(m.get("video_id") or "").strip()
+                ttl = (m.get("title") or "").strip()
+                vdt = (m.get("video_date") or "").strip()
+
+                # video_id boşsa replay tarih + başlık ile scraped_videos'dan çöz.
+                if (not vid) and (ttl or vdt):
+                    r = db_exec(
+                        "SELECT video_id FROM scraped_videos"
+                        " WHERE (?='' OR title=?) AND (?='' OR video_date=?)"
+                        " ORDER BY scraped_at DESC LIMIT 1",
+                        (ttl, ttl, vdt, vdt), fetch="one"
+                    ) or {}
+                    vid = str(r.get("video_id") or "").strip()
+                    if vid:
+                        m["video_id"] = vid
+
+                if not vid:
+                    m["watch_url"] = ""
+                    m["watch_seconds"] = 0
+                    continue
+
+                min_ts = ts_map.get((vid, str(m.get("source_type") or "")), 0)
+                secs = _estimate_watch_seconds(
+                    ts=m.get("timestamp") or 0,
+                    video_date=vdt,
+                    min_ts=min_ts,
+                    source_type=str(m.get("source_type") or "")
+                )
+                m["watch_seconds"] = int(secs)
+                m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
+
+        return jsonify({"messages":out,"total":tot})
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     @app.route("/api/analyze/user", methods=["POST"])
