@@ -3370,6 +3370,10 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
 <!-- KULLANICILAR -->
 <div id="tab-users" class="tab">
   <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:6px">
+      <button class="btn" id="users-all-btn" onclick="setUsersView('all')">👥 Tüm Kullanıcılar</button>
+      <button class="btn ghost" id="users-ban-btn" onclick="setUsersView('banned')">🚫 Banlananlar</button>
+    </div>
     <input class="inp" id="uf" placeholder="Kullanıcı filtrele..." oninput="loadUsers(1)" style="width:180px">
     <select class="inp" id="tf" onchange="loadUsers(1)">
       <option value="">Tüm Seviyeler</option>
@@ -3542,6 +3546,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
 const socket = io('/ws', {transports:['websocket','polling']});
 let page = {users:1,msgs:1}, pgSize = 50;
 let threatChart = null, graphLoaded = false;
+let usersView = 'all';
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
@@ -3609,13 +3614,17 @@ function addAlert(d){
 // ── KULLANICILAR ──────────────────────────────────────────────────────────────
 function loadUsers(p){
   if(p) page.users=p;
+  const isBannedView = usersView==='banned';
   $.get('/api/users',{page:page.users,size:pgSize,
-    filter:$('#uf').val(),threat:$('#tf').val()},function(d){
-    $('#ucnt').text(d.total+' kullanıcı');
+    filter:$('#uf').val(),threat:$('#tf').val(),banned:isBannedView?1:0},function(d){
+    $('#ucnt').text(d.total + (isBannedView ? ' banlanan kullanıcı' : ' kullanıcı'));
     let h='';
     (d.users||[]).forEach(u=>{
       const cls=LVL2CLS[u.threat_level]||'G';
       const sp=((u.threat_score||0)*100).toFixed(0);
+      const rowAction = isBannedView
+        ? `<button class="btn ghost" style="font-size:10px;padding:2px 6px" onclick="unbanUser('${u.author}')">✅ Ban Kaldır</button>`
+        : `<button class="btn red" style="font-size:10px;padding:2px 6px" onclick="banUser('${u.author}')">🚫</button>`;
       h+=`<tr>
         <td><a href="#" onclick="showUser('${u.author}')">${u.author}</a>
           ${u.is_new_account?'<sup style="background:var(--pur);color:#fff;padding:1px 4px;border-radius:3px;font-size:9px">YENİ</sup>':''}</td>
@@ -3629,13 +3638,27 @@ function loadUsers(p){
         <td><div class="bar"><div class="bar-fill" style="width:${sp}%;background:${CLR[cls]||'#2ECC71'}"></div></div></td>
         <td style="display:flex;gap:3px;flex-wrap:wrap">
           <button class="btn" style="font-size:10px;padding:2px 6px" onclick="analyzeUser('${u.author}')">⚡</button>
-          <button class="btn red" style="font-size:10px;padding:2px 6px" onclick="banUser('${u.author}')">🚫</button>
+          ${rowAction}
         </td>
       </tr>`;
     });
     $('#utbody').html(h);
     pager('upager',d.total,page.users,'loadUsers');
   });
+}
+
+function setUsersView(view){
+  usersView = (view==='banned') ? 'banned' : 'all';
+  const banned = usersView==='banned';
+  $('#users-all-btn').toggleClass('ghost', banned);
+  $('#users-ban-btn').toggleClass('ghost', !banned);
+  if(banned){
+    $('#tf').prop('disabled', true);
+    $('#tf').val('');
+  } else {
+    $('#tf').prop('disabled', false);
+  }
+  loadUsers(1);
 }
 
 function analyzeUser(a){
@@ -3655,6 +3678,13 @@ function analyzeAll(){
 function banUser(a){
   if(!confirm('@'+a+' kullanıcısını işaretle (BAN)?')) return;
   $.post('/api/user/'+encodeURIComponent(a)+'/ban',{},function(d){
+    status(d.message||'✅ Tamamlandı',3000); loadUsers();
+  });
+}
+
+function unbanUser(a){
+  if(!confirm('@'+a+' kullanıcısının BAN işaretini kaldır?')) return;
+  $.post('/api/user/'+encodeURIComponent(a)+'/unban',{},function(d){
     status(d.message||'✅ Tamamlandı',3000); loadUsers();
   });
 }
@@ -4247,9 +4277,12 @@ def create_app():
     def api_users():
         p=int(request.args.get("page",1)); sz=int(request.args.get("size",50))
         flt=request.args.get("filter",""); thr=request.args.get("threat","")
+        banned=request.args.get("banned","0")
         off=(p-1)*sz; wh="WHERE 1=1"; prms=[]
         if flt: wh+=" AND author LIKE ?"; prms.append(f"%{flt}%")
         if thr: wh+=" AND threat_level=?"; prms.append(thr)
+        if banned in ("1","true","True"):
+            wh+=" AND game_strategy='BAN'"
         tot=(db_exec(f"SELECT COUNT(*) c FROM user_profiles {wh}",tuple(prms),fetch="one") or {}).get("c",0)
         rows=db_exec(f"SELECT * FROM user_profiles {wh} ORDER BY threat_score DESC LIMIT ? OFFSET ?",
                      tuple(prms)+(sz,off),fetch="all") or []
@@ -4275,6 +4308,11 @@ def create_app():
     def api_ban(author):
         db_exec("UPDATE user_profiles SET game_strategy='BAN' WHERE author=?",(author,))
         return jsonify({"success":True,"message":f"@{author} BAN işaretlendi"})
+
+    @app.route("/api/user/<path:author>/unban", methods=["POST"])
+    def api_unban(author):
+        db_exec("UPDATE user_profiles SET game_strategy='BEHAVE' WHERE author=?",(author,))
+        return jsonify({"success":True,"message":f"@{author} BAN kaldırıldı"})
 
     @app.route("/api/user/<path:author>/account")
     def api_user_account(author):
