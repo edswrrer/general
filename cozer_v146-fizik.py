@@ -3745,6 +3745,20 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <button class="btn ghost" id="ban-corr-btn" onclick="showBannedCorrelations()" style="display:none;background:linear-gradient(135deg,#5d3fd3,#7f5af0);color:#fff;border:none">🧠 Banlanan-Korelasyon</button>
     <span id="ucnt" style="color:var(--tx2);font-size:11px;margin-left:auto"></span>
   </div>
+  <div class="card" style="margin-bottom:10px">
+    <h3>📥 Toplu Ban Sekmesi</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+      <textarea class="inp" id="bulk-ban-input"
+        placeholder="@kullanici_adi1 @kullanici_adi2 ... @kullanici_adin"
+        style="min-height:70px;min-width:280px;flex:1;resize:vertical"></textarea>
+      <div style="display:flex;flex-direction:column;gap:6px;min-width:200px">
+        <button class="btn red" id="bulk-ban-btn" onclick="bulkBanUsers()">🚫 Listedekileri Banla</button>
+        <small style="color:var(--tx2);font-size:11px">
+          Boşluk, satır sonu veya virgülle ayrılmış tüm @kullanıcı adları desteklenir.
+        </small>
+      </div>
+    </div>
+  </div>
   <table class="tbl">
     <thead><tr>
       <th class="sortable" data-sort-key="author" onclick="sortUsers('author')">Kullanıcı <span class="sort-ind">↕</span></th>
@@ -4326,6 +4340,63 @@ function unbanUser(a){
   if(!confirm('@'+a+' kullanıcısının BAN işaretini kaldır?')) return;
   $.post('/api/user/'+encodeURIComponent(a)+'/unban',{},function(d){
     status(d.message||'✅ Tamamlandı',3000); loadUsers();
+  });
+}
+
+function parseBulkBanHandles(text){
+  const src = String(text||'').replace(/\r/g,' ');
+  const picked = src.match(/@{1,2}[^@]+/g) || [];
+  let items = [];
+  if(picked.length){
+    items = picked.map(x=>x.trim());
+  } else {
+    items = src.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
+  }
+  const out = [];
+  const seen = new Set();
+  items.forEach(raw=>{
+    const cleaned = raw
+      .replace(/^@+/, '')
+      .replace(/[;,]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if(!cleaned) return;
+    const k = cleaned.toLocaleLowerCase('tr-TR');
+    if(seen.has(k)) return;
+    seen.add(k);
+    out.push(cleaned);
+  });
+  return out;
+}
+
+function bulkBanUsers(){
+  const raw = $('#bulk-ban-input').val() || '';
+  const handles = parseBulkBanHandles(raw);
+  if(!handles.length){
+    alert('Lütfen en az bir kullanıcı adı girin. Örn: @kullanici1 @kullanici2');
+    return;
+  }
+  if(!confirm(`${handles.length} kullanıcı BAN listesine taşınacak. Devam edilsin mi?`)) return;
+  const btn = $('#bulk-ban-btn');
+  btn.prop('disabled', true).text('⏳ İşleniyor...');
+  $.ajax({
+    url:'/api/users/ban-bulk',
+    method:'POST',
+    contentType:'application/json',
+    data:JSON.stringify({handles:handles})
+  }).done(function(d){
+    const moved = d.banned_count || 0;
+    const missing = (d.not_found || []).length;
+    let msg = `✅ ${moved} kullanıcı Banlananlar sekmesine taşındı.`;
+    if(missing) msg += ` ${missing} kullanıcı bulunamadı.`;
+    status(msg, 5000);
+    $('#bulk-ban-input').val('');
+    setUsersView('banned');
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Toplu ban işlemi başarısız';
+    status('❌ '+err, 5000);
+  }).always(function(){
+    btn.prop('disabled', false).text('🚫 Listedekileri Banla');
   });
 }
 
@@ -5249,6 +5320,85 @@ def create_app():
     def api_unban(author):
         db_exec("UPDATE user_profiles SET game_strategy='BEHAVE' WHERE author=?",(author,))
         return jsonify({"success":True,"message":f"@{author} BAN kaldırıldı"})
+
+    @app.route("/api/users/ban-bulk", methods=["POST"])
+    def api_ban_bulk():
+        def _normalize_author(value: Any) -> str:
+            s = unicodedata.normalize("NFKC", str(value or ""))
+            s = s.replace("\r", " ")
+            s = re.sub(r"\s+", " ", s).strip()
+            s = re.sub(r"^@+", "", s)
+            s = re.sub(r"[;,]+$", "", s).strip()
+            return s
+
+        def _parse_handles(raw: Any) -> List[str]:
+            if isinstance(raw, list):
+                return [_normalize_author(x) for x in raw if _normalize_author(x)]
+
+            txt = str(raw or "").replace("\r", " ")
+            found = re.findall(r"@{1,2}[^@]+", txt, flags=re.MULTILINE)
+            if found:
+                return [_normalize_author(x) for x in found if _normalize_author(x)]
+            return [_normalize_author(x) for x in re.split(r"[\n,;]+", txt) if _normalize_author(x)]
+
+        payload = request.get_json(silent=True) or {}
+        raw_handles = payload.get("handles")
+        if raw_handles is None:
+            raw_handles = request.form.get("handles", "")
+
+        handles: List[str] = _parse_handles(raw_handles)
+        clean = []
+        seen = set()
+        for h in handles:
+            author = _normalize_author(h)
+            if not author:
+                continue
+            key = author.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            clean.append(author)
+
+        if not clean:
+            return jsonify({"error":"Geçerli kullanıcı listesi bulunamadı"}), 400
+
+        prof_rows = db_exec("SELECT author FROM user_profiles", fetch="all") or []
+        profile_map: Dict[str, str] = {}
+        for r in prof_rows:
+            raw_author = str(r.get("author") or "").strip()
+            if not raw_author:
+                continue
+            n = _normalize_author(raw_author)
+            if n:
+                profile_map.setdefault(n.casefold(), raw_author)
+            if raw_author.startswith("@"):
+                n2 = _normalize_author(raw_author[1:])
+                if n2:
+                    profile_map.setdefault(n2.casefold(), raw_author)
+
+        found_authors = []
+        not_found = []
+        for author in clean:
+            hit = profile_map.get(author.casefold())
+            if hit:
+                found_authors.append(hit)
+            else:
+                not_found.append(author)
+
+        found_authors = list(dict.fromkeys(found_authors))
+
+        if found_authors:
+            db_exec(
+                f"UPDATE user_profiles SET game_strategy='BAN' WHERE author IN ({','.join(['?']*len(found_authors))})",
+                tuple(found_authors)
+            )
+
+        return jsonify({
+            "success": True,
+            "requested_count": len(clean),
+            "banned_count": len(found_authors),
+            "not_found": not_found
+        })
 
     @app.route("/api/banned/correlations")
     def api_banned_correlations():
