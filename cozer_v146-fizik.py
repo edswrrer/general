@@ -4090,109 +4090,65 @@ function exportBannedPDF(){
 function showBannedCorrelations(){
   const btn = document.getElementById('ban-corr-btn');
   if(btn){ btn.disabled = true; btn.textContent = '⏳ Hazırlanıyor...'; }
-  const navEl = Array.from(document.querySelectorAll('.ni'))
-    .find(x => x.textContent.includes('Ban-Korelasyon'));
-  nav('ban-correlation', navEl || document.querySelector('.ni.act'));
-  loadBannedAuthors()
-    .then(() => loadBannedCorrelationsTab())
-    .catch(e => status('❌ Korelasyon sekmesi açılamadı: ' + e.message, 5000))
-    .finally(() => {
-      if(btn){ btn.disabled = false; btn.textContent = '🧠 Banlanan-Korelasyon'; }
-    });
-}
-
-function loadBannedAuthors(selected=''){
-  return fetch('/api/users?page=1&size=500&banned=1')
-    .then(resp => resp.json())
-    .then(d=>{
-      const users = (d.users||[]).map(u=>u.author).filter(Boolean);
-      if(!users.length){
-        $('#bc-author').html('<option value="">Banlanan kullanıcı yok</option>');
-        return;
-      }
-      const opts = ['<option value="">Tümü</option>'].concat(
-        users.map(a=>{
-          const sel = selected && selected===a ? 'selected' : '';
-          return `<option value="${a}" ${sel}>@${a}</option>`;
-        })
-      );
-      $('#bc-author').html(opts.join(''));
-      if(selected && users.includes(selected)) $('#bc-author').val(selected);
-    });
-}
-
-function initBannedCorrelationTab(){
-  if(!$('#bc-author option').length){
-    loadBannedAuthors().then(()=>loadBannedCorrelationsTab());
-    return;
-  }
-  loadBannedCorrelationsTab();
-}
-
-function renderBannedCorrelationTab(rows, meta){
-  $('#bc-count').text(`${rows.length} satır`);
-  $('#bc-summary').text(
-    `Filtre: ${meta.banned_author ? '@'+meta.banned_author : 'Tüm banlanan kullanıcılar'} · Min. Korelasyon: ${meta.min_corr}`
-  );
-  if(!rows.length){
-    $('#bc-results').html('<div style="color:var(--tx2);font-size:12px">Filtreye uyan korelasyon bulunamadı.</div>');
-    return;
-  }
-  const cards = rows.map(r=>{
-    const ts = r.banned_timestamp ? new Date(r.banned_timestamp*1000).toLocaleString() : '-';
-    const cts = r.candidate_timestamp ? new Date(r.candidate_timestamp*1000).toLocaleString() : '-';
-    const corrPct = ((r.correlation||0)*100).toFixed(1);
-    const bartPct = ((r.bart_similarity||0)*100).toFixed(1);
-    const qPct = ((r.qlearning_similarity||0)*100).toFixed(1);
-    const syncTxt = r.sync_type==='adjacent' ? 'Önce/Sonra Sohbet' : 'Aynı Sohbet';
-    const vidTitle = r.video_title || r.video_id || '-';
-    const videoLink = r.video_id ? `https://www.youtube.com/watch?v=${r.video_id}` : '';
-    const bt = r.banned_tendency || {};
-    const ct = r.candidate_tendency || {};
-    const btText = `C-Judaism:${((bt.conservative_judaism||0)*100).toFixed(0)}% · Anti-Israel:${((bt.anti_israel||0)*100).toFixed(0)}% · Anti-Zionism:${((bt.anti_zionism||0)*100).toFixed(0)}%`;
-    const ctText = `C-Judaism:${((ct.conservative_judaism||0)*100).toFixed(0)}% · Anti-Israel:${((ct.anti_israel||0)*100).toFixed(0)}% · Anti-Zionism:${((ct.anti_zionism||0)*100).toFixed(0)}%`;
-    return `<div class="card" style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div><b>@${r.banned_author||'-'}</b> ↔ <b>@${r.candidate_author||'-'}</b></div>
-        <div style="color:var(--acc);font-weight:700">${corrPct}% Korelasyon</div>
-      </div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:6px">
-        Video: ${videoLink ? `<a href="${videoLink}" target="_blank" rel="noopener noreferrer">${vidTitle}</a>` : vidTitle}
-        &nbsp;|&nbsp; Konum: ${syncTxt}
-      </div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">
-        Banlanan zaman: ${ts} &nbsp;|&nbsp; Korelasyonlu yazar zaman: ${cts}
-      </div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">
-        BART: ${bartPct}% &nbsp;|&nbsp; Q-Learning: ${qPct}% &nbsp;|&nbsp; Hate-Align: ${((r.hate_alignment||0)*100).toFixed(1)}%
-      </div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:6px"><b>Banlanan eğilim:</b> ${btText}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px"><b>Yazar eğilim:</b> ${ctText}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:6px"><b>Banlanan mesaj:</b> ${(r.banned_message||'').substring(0,260)}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px"><b>Korelasyonlu mesaj:</b> ${(r.candidate_message||'').substring(0,260)}</div>
-    </div>`;
-  }).join('');
-  $('#bc-results').html(cards);
-}
-
-function loadBannedCorrelationsTab(){
-  const minCorr = parseFloat($('#bc-mincorr').val() || '0.62');
-  const selectedAuthor = ($('#bc-author').val() || '').trim();
-  const params = new URLSearchParams();
-  params.set('min_corr', String(isNaN(minCorr)?0.62:minCorr));
-  params.set('limit', '350');
-  if(selectedAuthor) params.set('banned_author', selectedAuthor);
   status('Banlanan-korelasyon analizi hesaplanıyor...');
-  fetch('/api/banned/correlations?' + params.toString())
+  fetch('/api/banned/correlations')
     .then(resp => resp.json().then(d => ({ok:resp.ok,data:d})))
     .then(({ok,data}) => {
       if(!ok) throw new Error(data.error || 'Korelasyon hatası');
-      renderBannedCorrelationTab(data.rows||[], data);
-      status(`✅ ${data.total||0} kayıt listelendi`, 3500);
+      const rows = data.rows || [];
+      if(!rows.length){
+        $('#modal-title').text('🧠 Banlanan-Korelasyon');
+        $('#modal-body').html('<p style="color:var(--tx2)">Yüksek korelasyonlu yazar bulunamadı.</p>');
+        $('#modal').addClass('open');
+        status('Uygun eşleşme bulunamadı', 3500);
+        return;
+      }
+      const h = rows.map(r=>{
+        const ts = r.banned_timestamp ? new Date(r.banned_timestamp*1000).toLocaleString() : '-';
+        const cts = r.candidate_timestamp ? new Date(r.candidate_timestamp*1000).toLocaleString() : '-';
+        const corrPct = ((r.correlation||0)*100).toFixed(1);
+        const bartPct = ((r.bart_similarity||0)*100).toFixed(1);
+        const qPct = ((r.qlearning_similarity||0)*100).toFixed(1);
+        const syncTxt = r.sync_type==='adjacent' ? 'Önce/Sonra Sohbet' : 'Aynı Sohbet';
+        const vidLink = r.video_id
+          ? `<a href="https://www.youtube.com/watch?v=${r.video_id}" target="_blank" rel="noopener noreferrer">${r.video_title||r.video_id}</a>`
+          : (r.video_title||'-');
+        return `<tr>
+          <td>@${r.banned_author||'-'}</td>
+          <td>${vidLink}</td>
+          <td>${ts}</td>
+          <td>@${r.candidate_author||'-'}</td>
+          <td>${cts}</td>
+          <td><b style="color:var(--acc)">${corrPct}%</b></td>
+          <td>${bartPct}%</td>
+          <td>${qPct}%</td>
+          <td>${syncTxt}</td>
+        </tr>`;
+      }).join('');
+      $('#modal-title').text('🧠 Banlanan-Korelasyon');
+      $('#modal-body').html(
+        `<div style="color:var(--tx2);font-size:11px;margin-bottom:8px">
+          NLP(BART) + Q-Learning + eş-zamanlı sohbet sinyali ile yüksek korelasyonlu yazarlar listelenmiştir.
+        </div>
+        <div style="max-height:62vh;overflow:auto">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Banlanan</th><th>Video</th><th>Banlanan Zaman</th>
+                <th>Korelasyonlu Yazar</th><th>Yazar Zaman</th>
+                <th>Korelasyon</th><th>BART Benzerliği</th><th>Q-Learning</th><th>Sohbet Konumu</th>
+              </tr>
+            </thead>
+            <tbody>${h}</tbody>
+          </table>
+        </div>`
+      );
+      $('#modal').addClass('open');
+      status(`✅ ${rows.length} korelasyon satırı listelendi`, 4000);
     })
-    .catch(e => {
-      $('#bc-results').html(`<div style="color:var(--red);font-size:12px">❌ ${e.message}</div>`);
-      status('❌ Korelasyon hatası: ' + e.message, 5000);
+    .catch(e => status('❌ Korelasyon hatası: ' + e.message, 5000))
+    .finally(() => {
+      if(btn){ btn.disabled = false; btn.textContent = '🧠 Banlanan-Korelasyon'; }
     });
 }
 
@@ -4961,25 +4917,13 @@ def create_app():
         try:
             min_corr = float(request.args.get("min_corr", 0.62))
             max_rows = min(int(request.args.get("limit", 300)), 1000)
-            banned_author_filter = (request.args.get("banned_author", "") or "").strip()
 
-            if banned_author_filter:
-                banned_users = db_exec(
-                    """
-                    SELECT author, q_state, antisemitism_score
-                    FROM user_profiles
-                    WHERE game_strategy='BAN' AND author=?
-                    """,
-                    (banned_author_filter,),
-                    fetch="all"
-                ) or []
-            else:
-                banned_users = db_exec(
-                    "SELECT author, q_state, antisemitism_score FROM user_profiles WHERE game_strategy='BAN'",
-                    fetch="all"
-                ) or []
+            banned_users = db_exec(
+                "SELECT author, q_state, antisemitism_score FROM user_profiles WHERE game_strategy='BAN'",
+                fetch="all"
+            ) or []
             if not banned_users:
-                return jsonify({"rows": [], "total": 0, "banned_author": banned_author_filter, "min_corr": min_corr})
+                return jsonify({"rows": [], "total": 0})
 
             banned_set = {r["author"] for r in banned_users if r.get("author")}
             prof_rows = db_exec(
@@ -4994,31 +4938,18 @@ def create_app():
                 for r in prof_rows if r.get("author")
             }
 
-            if banned_author_filter:
-                banned_msgs = db_exec(
-                    """
-                    SELECT id, author, video_id, title, timestamp, message
-                    FROM messages
-                    WHERE deleted=0 AND author=?
-                    ORDER BY timestamp DESC
-                    LIMIT 2500
-                    """,
-                    (banned_author_filter,),
-                    fetch="all"
-                ) or []
-            else:
-                banned_msgs = db_exec(
-                    """
-                    SELECT id, author, video_id, title, timestamp, message
-                    FROM messages
-                    WHERE deleted=0 AND author IN (
-                        SELECT author FROM user_profiles WHERE game_strategy='BAN'
-                    )
-                    ORDER BY timestamp DESC
-                    LIMIT 2500
-                    """,
-                    fetch="all"
-                ) or []
+            banned_msgs = db_exec(
+                """
+                SELECT id, author, video_id, title, timestamp, message
+                FROM messages
+                WHERE deleted=0 AND author IN (
+                    SELECT author FROM user_profiles WHERE game_strategy='BAN'
+                )
+                ORDER BY timestamp DESC
+                LIMIT 2500
+                """,
+                fetch="all"
+            ) or []
 
             out_rows = []
             seen = set()
@@ -5095,13 +5026,11 @@ def create_app():
                         "banned_author": b_author,
                         "banned_timestamp": ts,
                         "banned_message_id": bm.get("id"),
-                        "banned_message": bm.get("message", ""),
                         "video_id": vid,
                         "video_title": bm.get("title") or cm.get("title") or "",
                         "candidate_author": c_author,
                         "candidate_timestamp": c_ts,
                         "candidate_message_id": cm.get("id"),
-                        "candidate_message": cm.get("message", ""),
                         "sync_type": sync_type,
                         "correlation": corr["correlation"],
                         "bart_similarity": corr["bart_similarity"],
@@ -5113,12 +5042,7 @@ def create_app():
 
             out_rows.sort(key=lambda x: x.get("correlation", 0.0), reverse=True)
             out_rows = out_rows[:max_rows]
-            return jsonify({
-                "rows": out_rows,
-                "total": len(out_rows),
-                "min_corr": min_corr,
-                "banned_author": banned_author_filter,
-            })
+            return jsonify({"rows": out_rows, "total": len(out_rows), "min_corr": min_corr})
         except Exception as e:
             log.exception("Banned correlation error: %s", e)
             return jsonify({"error": str(e)}), 500
