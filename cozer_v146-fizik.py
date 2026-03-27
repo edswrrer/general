@@ -607,29 +607,29 @@ def parse_bulk_handles(raw_handles: Any) -> List[str]:
     Tek bir metin veya liste alır; @ işaretli kalıpları önceliklendirir ve
     boşluk içeren kullanıcı adlarını korur.
     """
-    def _extract_handles_from_text(text: str) -> List[str]:
+    def _split_from_text(text: str) -> List[str]:
         raw_text = unicodedata.normalize("NFKC", str(text or ""))
-        # Öncelik: @/@@" sonrası yalnızca handle karakterlerini al.
-        # Bu sayede "CRIMSON 85% ATTACKING" gibi metadata parçaları içeri girmez.
-        strict = [h.strip() for h in re.findall(r"@{1,2}([\w.-]+)", raw_text, flags=re.UNICODE)]
-        if strict:
-            return strict
-
-        # Fallback: @ yoksa virgül/satır bazlı girişleri yine destekle.
         out: List[str] = []
         for frag in re.split(r"[,\n;]+", raw_text):
             frag = frag.strip()
             if not frag:
                 continue
-            out.append(frag)
+            at_handles = [p.strip() for p in re.findall(r"@{1,2}([^\s@,;\n]+)", frag)]
+            if at_handles:
+                out.extend(at_handles)
+                full = re.sub(r"^@+", "", frag).strip()
+                if full:
+                    out.append(full)
+            else:
+                out.append(frag)
         return out
 
     tokens: List[str] = []
     if isinstance(raw_handles, list):
         for item in raw_handles:
-            tokens.extend(_extract_handles_from_text(str(item or "")))
+            tokens.extend(_split_from_text(str(item or "")))
     else:
-        tokens = _extract_handles_from_text(str(raw_handles or ""))
+        tokens = _split_from_text(str(raw_handles or ""))
 
     clean: List[str] = []
     seen = set()
@@ -639,6 +639,36 @@ def parse_bulk_handles(raw_handles: Any) -> List[str]:
         if not raw_key or raw_key in seen_raw:
             continue
         seen_raw.add(raw_key)
+        author = normalize_handle_token(token)
+        if not author or author in seen:
+            continue
+        seen.add(author)
+        clean.append(author)
+    return clean
+
+def parse_bulk_handles(raw_handles: Any) -> List[str]:
+    """
+    Toplu ban için kullanıcı adı listesi ayrıştırıcı.
+    Tek bir metin veya liste alır; @ işaretli kalıpları önceliklendirir ve
+    boşluk içeren kullanıcı adlarını korur.
+    """
+    def _split_from_text(text: str) -> List[str]:
+        raw_text = unicodedata.normalize("NFKC", str(text or ""))
+        at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
+        if at_parts:
+            return at_parts
+        return [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
+
+    tokens: List[str] = []
+    if isinstance(raw_handles, list):
+        for item in raw_handles:
+            tokens.extend(_split_from_text(str(item or "")))
+    else:
+        tokens = _split_from_text(str(raw_handles or ""))
+
+    clean: List[str] = []
+    seen = set()
+    for token in tokens:
         author = normalize_handle_token(token)
         if not author or author in seen:
             continue
@@ -4446,14 +4476,20 @@ function unbanUser(a){
 
 function parseBulkBanHandles(text){
   const raw = String(text||'').normalize('NFKC');
-  const strict = [...raw.matchAll(/@{1,2}([\p{L}\p{N}_.-]+)/gu)].map(m=>m[1]);
-  const parts = strict.length
-    ? strict
-    : raw.split(/[,\n;]+/).map(t=>String(t||'').trim()).filter(Boolean);
+  const parts = [];
+  const regex = /@+([^,\n;]+)/g;
+  let m;
+  while((m = regex.exec(raw)) !== null){
+    // @ ile başlayan blokları virgül/noktalı virgül/yeni satıra kadar al.
+    // Böylece boşluk içeren kullanıcı adları parçalanmaz.
+    parts.push(m[1]);
+  }
+  if(!parts.length){
+    parts.push(...raw.split(/[,\n;]+/));
+  }
   return Array.from(new Set(
     parts
       .map(t=>String(t||'').normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
-      .map(t=>t.replace(/\s+/g,' ').replace(/[-_.]+$/g,'').trim())
       .filter(Boolean)
   ));
 }
