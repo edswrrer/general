@@ -4457,6 +4457,7 @@ let replayState = {windows:[],active:null,messages:[],idx:0,timer:null,playing:f
 let _replayWindowsCache = null;   // windows listesi
 let _replayMsgCache = {};         // video_id+date → messages[]
 let _replayFlagCache = {};        // video_id+date → flagged_users[]
+let _replaySuppAutoContext = null; // otomatik takviye bağlamı
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
@@ -5174,10 +5175,67 @@ function _renderReplayWindows(windows){
     h += `<div class="msg" style="cursor:pointer" onclick="openReplayWindow(${i})">
       <div class="meta"><b>${dt}</b><span style="margin-left:auto;color:var(--tx2)">${w.message_count||0} mesaj</span></div>
       <div class="txt">${hl(ttl,'')}</div>
-      <div class="meta" style="margin-top:4px"><span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span><span style="font-size:10px;color:var(--tx2)">${dur}</span></div>
+      <div class="meta" style="margin-top:4px">
+        <span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span>
+        <span style="font-size:10px;color:var(--tx2)">${dur}</span>
+      </div>
+      <div style="margin-top:6px;display:flex;justify-content:flex-end">
+        <button class="btn ghost" style="font-size:10px;padding:2px 7px"
+          onclick="replayWindowRecalc(${i},event)"
+          title="Bu sütun için koşullu hesaplama">🧮 Hesapla</button>
+      </div>
     </div>`;
   });
   $('#replay-window-list').html(h || '<p style="color:var(--tx2)">Sohbet penceresi bulunamadı</p>');
+}
+
+function replayWindowRecalc(idx, evt){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  const win = replayState.windows[idx];
+  if(!win) return;
+
+  const cacheKey = _replayCacheKey(win);
+  const supplementUrl = 'https://www.youtube.com/watch?v=T4LaZOUaN04';
+  const matchedTitle = (win.title || win.video_id || '').trim();
+
+  function goNlpAndSupplement(){
+    const nlpNavBtn = Array.from(document.querySelectorAll('.ni'))
+      .find(el => (el.textContent||'').toLowerCase().includes('nlp'));
+    if(nlpNavBtn){ nav('nlp', nlpNavBtn); }
+    else { nav('nlp', document.querySelector('.ni')); }
+    $('#nlp-supp-url').val(supplementUrl);
+    $('#nlp-supp-title').val(matchedTitle);
+    _replaySuppAutoContext = { cache_key: cacheKey, replay_idx: idx, title: matchedTitle };
+    status('🤖 0 mesaj bulundu. NLP takviyesi otomatik başlatılıyor...', 5000);
+    nlpSupplementVideo();
+  }
+
+  function handleMessages(msgs){
+    const messageCount = (msgs||[]).length;
+    if(messageCount > 0){
+      openReplayWindow(idx);
+      status(`✅ Bu sütunda ${messageCount} mesaj var; takviye tetiklenmedi.`, 4000);
+      return;
+    }
+    goNlpAndSupplement();
+  }
+
+  if(_replayMsgCache[cacheKey]){
+    handleMessages(_replayMsgCache[cacheKey]);
+    return;
+  }
+
+  status('⏳ Seçili sütunun mesaj sayısı kontrol ediliyor...');
+  $.get('/api/replay/window/messages',{
+    video_id: win.video_id || '',
+    window_date: win.window_date || '',
+    limit: 5000
+  },function(d){
+    _replayMsgCache[cacheKey] = d.messages || [];
+    handleMessages(_replayMsgCache[cacheKey]);
+  }).fail(function(){
+    status('❌ Mesaj sayısı kontrolü başarısız oldu', 4000);
+  });
 }
 
 function openReplayWindow(idx){
@@ -5827,6 +5885,11 @@ socket.on('nlp_supplement_done', d=>{
     : `✅ ${d.video_id}: ${d.messages_saved} mesaj kaydedildi${slotInfo}`;
   $('#nlp-supp-status').html(statusTxt);
   $('#nlp-status').html(statusTxt);
+  if(_replaySuppAutoContext){
+    status('🔄 Takviye sonrası sohbet pencereleri güncelleniyor...', 3500);
+    loadReplayWindows(true);
+    _replaySuppAutoContext = null;
+  }
   loadDash();
 });
 
