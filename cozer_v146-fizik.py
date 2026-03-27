@@ -211,6 +211,251 @@ MOD_ACTIONS   = ["BAN","WARN","IGNORE","MONITOR"]
 ACTOR_ACTIONS = ["BEHAVE","TROLL","IMPERSONATE","FLOOD"]
 ACTION_NAMES  = {0:"HUMAN",1:"BOT",2:"HATER",3:"STALKER",4:"IMPERSONATOR",5:"COORDINATED"}
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# § 2b — GENİŞLETİLMİŞ NEFRET/TROL SÖZLÜĞÜ
+# Antisemitizm · Nazizm · Beyaz Üstünlükçülük · Hristiyan Radikalizmi
+# Türkçe + İngilizce + Rusça (Kiril) kapsamı
+# ═══════════════════════════════════════════════════════════════════════════════
+EXTENDED_HATE_DICT: Dict[str, List[str]] = {
+
+    # ── ANTİSEMİTİZM / YAHUDİ KARŞITLIĞI ────────────────────────────────────
+    "antisemitism": [
+        # Türkçe
+        "yahudi köpek", "yahudi domuzu", "yahudiler dünyayı yönetiyor",
+        "yahudiler kontrol ediyor", "yahudi lobisi", "yahudi komplası",
+        "yahudi haini", "siyonist işgalci", "siyonist kukla",
+        "siyonist çete", "yahudi parası", "bankacı yahudi",
+        "yahudiler savaş çıkarıyor", "yahudi medyası", "yahudi propagandası",
+        "rothschild komplosu", "yahudi düzeni", "yahudi egemenliği",
+        "antisemit değilim ama yahudiler", "yahudileri tanrı lanetledi",
+        "filistin kurtulsun yahudiler ölsün", "yahudi soykırım yalanı",
+        "holokost yalanı", "holokost yok", "holokost olmadı",
+        "yahudiler holokost'u icat etti", "holokost sahtekarlığı",
+        "6 milyon yalan", "gaz odaları yalan", "auschwitz yalanı",
+        "yahudiler parazit", "yahudiler asalak", "yahudi ırkı",
+        "semitik gizli devlet", "derin yahudi devlet",
+        "yahudi gazeteci", "yahudi aktivisit", "yahudi sermaye",
+        "khazar yahudi", "hazarlar gerçek yahudi değil",
+        "zioni$t", "siyon1st", "jüd", "jude raus",
+        # İngilizce
+        "jewish conspiracy", "jewish control", "jews control",
+        "jewish banker", "banking jews", "jewish media control",
+        "zionist occupation", "zionist puppet", "zog government",
+        "zog regime", "jewish world domination", "globalist jews",
+        "soros puppet", "jewish agenda", "jewish elites run",
+        "jews did 9/11", "holocaust hoax", "holocaust denial",
+        "holocaust never happened", "6 million lies", "gas chambers fake",
+        "jew rats", "jewish rats", "jewish parasites", "jewish vermin",
+        "dirty jew", "filthy jew", "kike", "k*ke", "k1ke",
+        "kikel", "heeb", "hebe", "hymie", "jewbag", "jewfag",
+        "goyim know", "shut it down", "happy merchant",
+        "echo parentheses jew", "triple brackets", "(((jew)))",
+        "juice did it", "protocols of zion", "elders of zion",
+        "judeo-masonic", "judeo-bolshevik", "judeo-communist",
+        "jewish bolshevism", "jews behind communism",
+        "anti-white jews", "white genocide jews",
+        "replace white people jews", "kalergi plan jews",
+        # Rusça (transliteration + kiril)
+        "евреи управляют", "жидовская власть", "жид", "жиды",
+        "еврейский заговор", "сионистская оккупация", "холокост ложь",
+        "евреи паразиты", "жидобанкиры",
+    ],
+
+    # ── NAZİZM / NEO-NAZİZM ──────────────────────────────────────────────────
+    "nazism": [
+        # Sayısal kodlar ve semboller
+        "88", "heil 88", "14 words", "1488", "14/88", "1433",
+        "sieg heil", "heil hitler", "hh", "h.h.", "h/h",
+        "gas the jews", "gtkrwn", "gas the kikes",
+        "final solution", "endlösung", "endloesung",
+        "fourth reich", "third reich glory", "reich statt",
+        "aryan race", "aryan brotherhood", "aryan nation",
+        "white power", "white pride worldwide", "wpww",
+        "racial holy war", "rahowa",
+        "national socialism forever", "nsdap",
+        "swastika pride", "hakenkreuz", "wolfsangel",
+        "black sun symbol", "schwarze sonne", "ss bolts",
+        "totenkopf pride", "death's head ss",
+        # Türkçe
+        "hitler haklıydı", "nazizm doğruydu", "nasyonal sosyalizm",
+        "aryan ırkı üstün", "beyaz ırk saf kalmalı",
+        "yahudileri gazlayın", "yahudileri öldürün",
+        "nazi selamı", "zieg heil", "führer haklı",
+        "türk-aryan birliği", "ari ırk", "ırk saflığı",
+        # İngilizce
+        "gas chamber revival", "kill all jews", "nazi proud",
+        "natsoc", "nat soc", "national socialist movement",
+        "daily stormer", "stormfront", "vanguard america",
+        "atomwaffen", "base movement", "accelerationism white",
+        "james mason siege", "neo nazi party",
+        # Rusça
+        "слава гитлеру", "нацист навсегда", "зиг хайль",
+        "убить евреев", "белая власть", "88 хайль",
+    ],
+
+    # ── BEYAZ ÜSTÜNLÜKÇÜLÜK ──────────────────────────────────────────────────
+    "white_supremacy": [
+        # İngilizce
+        "white genocide", "great replacement", "replacement theory",
+        "kalergi plan", "white extinction", "white race dying",
+        "save the white race", "white lives matter more",
+        "it's okay to be white", "iotbw", "white identity",
+        "white nationalist", "white ethnostate", "white homeland",
+        "blood and soil", "blut und boden", "whites only",
+        "race mixing is sin", "interracial is degeneracy",
+        "apes out", "black crime statistics",
+        "race realism", "scientific racism",
+        "iq race differences", "bell curve race",
+        "sub-human races", "subhuman minority",
+        "white separatism", "white revolution",
+        "accelerate the collapse for white", "boogaloo whites",
+        "groyper army", "nick fuentes fash",
+        "proud boy white", "patriot front", "american identity movement",
+        "european identity movement", "generation identity",
+        "identitarianism white", "alt-right", "alt right white",
+        "race war now", "day of the rope", "turner diaries",
+        # Türkçe
+        "beyaz üstünlüğü", "beyaz ırk üstün",
+        "ırk karışımı günah", "ırk saflığını koru",
+        "beyaz soykırımı", "büyük değiştirme teorisi",
+        "kalergi planı", "beyaz ırk yok olmasın",
+        "saf türk ırkı", "türk ırkının saflığı",
+        # Rusça
+        "белое превосходство", "белая раса лучше",
+        "расовая война", "расовая чистота",
+    ],
+
+    # ── HRİSTİYAN RADİKALİZMİ / İSLAMOFOBİ ──────────────────────────────────
+    "christian_radicalism": [
+        # İngilizce
+        "christian nationalism", "christian national socialism",
+        "holy war against islam", "crusade against muslims",
+        "death to muslims", "kill all muslims", "islam is evil",
+        "muslims are terrorists", "all muslims are jihadis",
+        "shariah law never", "ban islam worldwide",
+        "islamic invasion", "muslim invasion of europe",
+        "replace muslims", "deport all muslims",
+        "christian identity movement", "christian identity church",
+        "creative movement church creator",
+        "god hates fags westboro", "god hates jews",
+        "qanon christian", "satanic panic jews",
+        "child sacrifice jews", "blood libel",
+        "pizzagate satanic", "adrenochrome harvesting",
+        "new world order christian fight",
+        "end times jewish antichrist",
+        "george soros antichrist", "one world religion evil",
+        "mark of the beast vaccine", "rapture white christians",
+        "dominionism", "seven mountains mandate extremist",
+        "christian reconstructionism mandatory death",
+        # Türkçe
+        "hristiyan milliyetçiliği", "müslümanları öldürün",
+        "islama ölüm", "haçlı seferi yeniden",
+        "müslümanlar terörist", "islam kötülüktür",
+        "din savaşı müslümanlara karşı",
+        "yahudiler şeytan", "yahudiler antikrist",
+        "kan iftirası yahudi", "çocuk kurban yahudi",
+        "soros şeytan", "nwo şeytan düzeni",
+        "aşı iblis işareti", "6. mühür aktivist",
+        # Rusça
+        "христианский национализм", "смерть мусульманам",
+        "ислам зло", "крестовый поход против ислама",
+        "евреи дьяволы",
+    ],
+
+    # ── GENEL KÜFÜR / HAKARET (Türkçe odaklı) ────────────────────────────────
+    "profanity_tr": [
+        "amk", "orospu", "orospu çocuğu", "oç", "o.ç", "o.c",
+        "piç", "piçlik", "bok", "boktan", "siktir", "sikerim",
+        "sik", "amına", "amına koyayım", "götüne", "göt",
+        "yarrak", "yarak", "bok yiyeyim", "ananı",
+        "ananı sikerim", "anana", "ananın", "bacına",
+        "orospunun evladı", "kahpe", "kahpenin evladı",
+        "it", "haysiyetsiz", "şerefsiz", "alçak",
+        "defol", "köpek", "eşek", "eşşek",
+        "salak", "aptal ahmak", "gerizekalı",
+        "manyak", "deli", "deli herif",
+        "bok gibi", "pislik", "rezil",
+        "sürtük", "fahişe", "kaltak",
+        "ibne", "götveren", "oğlan",
+        "zibidi", "hödük", "dangalak",
+        "mal", "mal herif", "gerzek",
+        "serseri", "aşşağılık", "aşağılık",
+    ],
+
+    # ── KÜRESEL KOMPLO TEORİLERİ / TROL SİNYALLERİ ───────────────────────────
+    "conspiracy_troll": [
+        # İngilizce
+        "globalist agenda", "new world order globalists",
+        "deep state zionist", "illuminati jews",
+        "bilderberg jewish", "davos jews",
+        "who controls the world jews", "they want to replace you",
+        "great reset depopulation", "bill gates depopulation",
+        "vaccine microchip control", "5g mind control jews",
+        "chemtrails jewish", "fluoride jewish",
+        "george floyd fake", "sandy hook hoax",
+        "crisis actor false flag",
+        "false flag attack jews", "isis created by israel",
+        "mossad did 9/11", "dancing israelis 9/11",
+        "cohencidence", "noticing things jews",
+        # Türkçe
+        "derin devlet siyonist", "küresel yahudi komplosu",
+        "illuminati yahudi", "yeni dünya düzeni yahudi",
+        "aşı kontrol mikroçip", "5g kontrol",
+        "bilderberg siyonist", "davos yahudi",
+        "george soros şeytan planı", "kaos yaratmak yahudi",
+        "yahudiler arkasında", "onlar kontrol ediyor",
+        "falan yalancı yahudi", "sahte saldırı mossad",
+        "isis israil kurdu", "pkk yahudi kontrolünde",
+    ],
+}
+
+# Sözlük kategorisi → tehdit skoru ağırlığı
+_HATE_DICT_WEIGHTS: Dict[str, float] = {
+    "antisemitism":        0.90,
+    "nazism":              0.95,
+    "white_supremacy":     0.85,
+    "christian_radicalism":0.75,
+    "profanity_tr":        0.55,
+    "conspiracy_troll":    0.65,
+}
+
+def keyword_hate_score(text: str) -> Dict[str, float]:
+    """
+    Genişletilmiş sözlük tabanlı hızlı nefret/trol skoru.
+    BART'a ek katman olarak çalışır; hard-code veri tabanı (kullanıcı adı
+    veya özel mesaj içeriği) yoktur — yalnızca dil kalıplarına bakar.
+    Returns: kategori → [0,1] skor + toplam 'overall' skoru
+    """
+    if not text or not text.strip():
+        return {k: 0.0 for k in _HATE_DICT_WEIGHTS} | {"overall": 0.0, "matched_terms": []}
+
+    normalized = text.lower()
+    # Basit unicode normalizasyonu
+    normalized = unicodedata.normalize("NFKC", normalized)
+
+    scores: Dict[str, float] = {}
+    matched_terms: List[str] = []
+
+    for category, terms in EXTENDED_HATE_DICT.items():
+        weight = _HATE_DICT_WEIGHTS.get(category, 0.5)
+        hits = []
+        for term in terms:
+            t_low = term.lower()
+            if t_low in normalized:
+                hits.append(term)
+        if hits:
+            matched_terms.extend(hits[:3])  # en fazla 3 terim sakla (log gürültüsü azalt)
+            # Çoklu eşleşme → skor artır, ama 1.0'a sınırla
+            raw = min(1.0, len(hits) * 0.35) * weight
+            scores[category] = round(raw, 4)
+        else:
+            scores[category] = 0.0
+
+    overall = max(scores.values()) if scores else 0.0
+    scores["overall"] = round(overall, 4)
+    scores["matched_terms"] = matched_terms[:8]  # type: ignore[assignment]
+    return scores
+
 PAYOFF = np.array([
     [(-1,-5),(3,-3),(5,-4),(4,-3)],
     [( 1, 0),(-1,-1),(1,-2),(0,-1)],
@@ -359,6 +604,11 @@ def _migrate_legacy_schema(conn: sqlite3.Connection):
         "pagerank_score": "REAL DEFAULT 0.0",
         "ollama_summary": "TEXT",
         "ollama_action": "TEXT DEFAULT 'MONITOR'",
+        # ── Ban izolasyon kolonları (v8) ─────────────────────────────────────
+        # is_banned=1 olan kullanıcılar hiçbir analiz fonksiyonu tarafından
+        # üzerine yazılamaz; ban durumu yalnızca explicit ban/unban API'i değiştirebilir.
+        "is_banned":  "INTEGER DEFAULT 0",
+        "banned_at":  "INTEGER DEFAULT 0",
     }
 
     for col_name, col_def in required_user_profile_columns.items():
@@ -395,10 +645,25 @@ def upsert_message(msg: dict):
 def upsert_profile(author: str, upd: dict):
     if not db_exec("SELECT 1 FROM user_profiles WHERE author=?", (author,), fetch="one"):
         db_exec("INSERT OR IGNORE INTO user_profiles(author) VALUES(?)", (author,))
-    if upd:
-        sets = ", ".join(f"{k}=?" for k in upd)
-        db_exec(f"UPDATE user_profiles SET {sets}, updated_at=strftime('%s','now') WHERE author=?",
-                tuple(upd.values())+(author,))
+    if not upd:
+        return
+
+    # ── Ban izolasyon koruması ────────────────────────────────────────────────
+    # is_banned=1 olan kullanıcıların moderasyon/analiz alanları asla
+    # üzerine yazılamaz. Yalnızca ban/unban API endpoint'leri bu kilidi kaldırabilir.
+    _BAN_PROTECTED = {"game_strategy", "ollama_action", "threat_level",
+                      "threat_score", "is_banned", "banned_at"}
+    existing = db_exec(
+        "SELECT is_banned FROM user_profiles WHERE author=?", (author,), fetch="one"
+    ) or {}
+    if int(existing.get("is_banned") or 0) == 1:
+        upd = {k: v for k, v in upd.items() if k not in _BAN_PROTECTED}
+        if not upd:
+            return  # korunan alanların dışında güncellenecek hiçbir şey yok
+
+    sets = ", ".join(f"{k}=?" for k in upd)
+    db_exec(f"UPDATE user_profiles SET {sets}, updated_at=strftime('%s','now') WHERE author=?",
+            tuple(upd.values())+(author,))
 
 def get_user_msgs(author: str) -> List[Dict]:
     rows = db_exec("SELECT * FROM messages WHERE author=? AND deleted=0 ORDER BY timestamp",
@@ -2677,23 +2942,54 @@ def co_entry(events: List[Tuple[str,int]], delta=300) -> List[Tuple]:
 # § 10 — NEFRET SÖYLEMİ, KİMLİK ÖRTÜsü (Katman 4-5)
 # ═══════════════════════════════════════════════════════════════════════════════
 def hate_scores(text: str) -> Dict[str,float]:
+    """
+    BART zero-shot + Genişletilmiş Sözlük hibrit skoru.
+    Sözlük katmanı BART yoksa veya düşük güvenilirlik varsa devreye girer.
+    """
     if not text.strip():
         return {"antisemitism":0,"hate_general":0,"groyper":0,
-                "stalker_sig":0,"impersonation":0,"bot_signal":0,"neutral":1,"overall":0}
+                "stalker_sig":0,"impersonation":0,"bot_signal":0,"neutral":1,
+                "overall":0,"dict_flags":[],"nazism":0,"white_supremacy":0,
+                "christian_radicalism":0,"profanity":0,"conspiracy":0}
+
+    # ── BART katmanı ──────────────────────────────────────────────────────────
     s = bart_classify(text, THREAT_LABELS)
-    antisem = max(s.get("antisemitic content",0), s.get("hate speech against Jewish people",0))
-    groyper = s.get("groyper movement content",0)
-    hate    = max(s.get("islamophobic content",0),s.get("white supremacist content",0)) + groyper*0.3
-    overall = max(antisem, hate*0.8)
+    antisem_bart = max(s.get("antisemitic content",0), s.get("hate speech against Jewish people",0))
+    groyper_bart = s.get("groyper movement content",0)
+    hate_bart    = max(s.get("islamophobic content",0), s.get("white supremacist content",0)) + groyper_bart*0.3
+
+    # ── Sözlük katmanı ────────────────────────────────────────────────────────
+    kw = keyword_hate_score(text)
+    kw_antisem  = max(kw.get("antisemitism",0), kw.get("conspiracy_troll",0)*0.6)
+    kw_nazism   = kw.get("nazism",0)
+    kw_ws       = kw.get("white_supremacy",0)
+    kw_cr       = kw.get("christian_radicalism",0)
+    kw_prof     = kw.get("profanity_tr",0)
+    kw_consp    = kw.get("conspiracy_troll",0)
+    matched     = kw.get("matched_terms", [])
+
+    # ── Hibrit birleşim: BART + sözlük, max tabanlı ────────────────────────
+    # Ağırlık: BART daha güvenilir ama sözlük hızlı ve geniş kapsam sağlar
+    antisem  = round(max(antisem_bart, kw_antisem * 0.85), 4)
+    groyper  = round(max(groyper_bart, kw_ws * 0.70), 4)
+    hate     = round(max(hate_bart, kw_nazism * 0.9, kw_ws * 0.8, kw_cr * 0.6), 4)
+    overall  = round(max(antisem, hate * 0.8, kw_nazism, kw_ws * 0.75, kw_prof * 0.4), 4)
+
     return {
-        "antisemitism": round(antisem,4),
-        "hate_general": round(hate,4),
-        "groyper":      round(groyper,4),
-        "stalker_sig":  round(s.get("harassment and stalking behavior",0),4),
-        "impersonation":round(s.get("identity impersonation",0),4),
-        "bot_signal":   round(s.get("coordinated bot attack",0),4),
-        "neutral":      round(s.get("neutral friendly message",0),4),
-        "overall":      round(overall,4),
+        "antisemitism":       antisem,
+        "hate_general":       hate,
+        "groyper":            groyper,
+        "nazism":             round(max(kw_nazism, groyper_bart * 0.5), 4),
+        "white_supremacy":    round(kw_ws, 4),
+        "christian_radicalism": round(kw_cr, 4),
+        "profanity":          round(kw_prof, 4),
+        "conspiracy":         round(kw_consp, 4),
+        "stalker_sig":        round(s.get("harassment and stalking behavior",0), 4),
+        "impersonation":      round(s.get("identity impersonation",0), 4),
+        "bot_signal":         round(s.get("coordinated bot attack",0), 4),
+        "neutral":            round(s.get("neutral friendly message",0), 4),
+        "overall":            overall,
+        "dict_flags":         matched,
     }
 
 def ideology_tendency_scores(text: str) -> Dict[str,float]:
@@ -3548,6 +3844,13 @@ def analyze_user(author: str, run_ollama: bool = True) -> dict:
         "human_score":h_score,"threat_score":thr["score"]
     })
 
+    # ── Ban izolasyon: banlı kullanıcının kritik alanları korunur ─────────────
+    _existing = db_exec(
+        "SELECT is_banned, game_strategy, ollama_action, threat_level, threat_score"
+        " FROM user_profiles WHERE author=?", (author,), fetch="one"
+    ) or {}
+    _is_banned = int(_existing.get("is_banned") or 0) == 1
+
     # Güncelle
     upd = {
         "msg_count":      len(msgs),
@@ -3563,21 +3866,25 @@ def analyze_user(author: str, run_ollama: bool = True) -> dict:
         "pos_json":       json.dumps(pos_v),
         "temporal_json":  json.dumps(time_v),
         "identity_vector":json.dumps(h_res),
-        "threat_level":   thr["level"],
-        "threat_score":   thr["score"],
-        "hmm_state":      hmm_s,
-        "game_strategy":  mod_act,
         "kalman_score":   round(float(kal_score),4),
         "first_seen":     min(tss) if tss else 0,
         "last_seen":      max(tss) if tss else 0,
     }
+    # Banlı kullanıcıda tehdit/strateji alanları değiştirilmez; analiz sonuçları
+    # istatistiksel alanlara (bot_prob, hate_score vb.) yine de işlenir.
+    if not _is_banned:
+        upd["threat_level"]  = thr["level"]
+        upd["threat_score"]  = thr["score"]
+        upd["hmm_state"]     = hmm_s
+        upd["game_strategy"] = mod_act
 
     # Ollama (SADECE yorum analizi, kritik durumlarda)
     ollama_res = {}
     if run_ollama and _OLLAMA and (hate > 0.35 or b_score > 0.6 or antisem > 0.2):
         ollama_res = ollama_analyze(author, msgs, "threat")
         upd["ollama_summary"] = ollama_res.get("summary","")[:1000]
-        upd["ollama_action"]  = ollama_res.get("recommended_action","MONITOR")
+        if not _is_banned:  # banlı kullanıcının ollama_action'ı korunur
+            upd["ollama_action"] = ollama_res.get("recommended_action","MONITOR")
 
     upsert_profile(author, upd)
 
@@ -3947,27 +4254,40 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <div class="card" style="margin-bottom:0">
       <h3>🗓️ Tarihe Göre Sohbet Pencereleri</h3>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <button class="btn ghost" onclick="loadReplayWindows()">🔄 Yenile</button>
+        <button class="btn red" onclick="loadReplayWindows(true)" title="Önbelleği temizle ve API'den yeniden hesapla">🔄 Yeniden Hesapla</button>
         <span id="replay-window-count" style="font-size:11px;color:var(--tx2)"></span>
+        <span style="font-size:10px;color:var(--tx2);margin-left:auto" title="Önbellekten yüklenir, sadece 'Yeniden Hesapla' ile güncellenir">💾 önbellekli</span>
       </div>
       <div id="replay-window-list" style="max-height:560px;overflow-y:auto"></div>
     </div>
-    <div class="card" style="margin-bottom:0">
-      <h3>▶ Gerçek-Zamanlı Sohbet Simülasyonu</h3>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-        <button class="btn grn" onclick="playReplay()">▶ Oynat</button>
-        <button class="btn ghost" onclick="pauseReplay()">⏸ Duraklat</button>
-        <button class="btn ghost" onclick="resetReplay()">⏮ Sıfırla</button>
-        <label style="font-size:11px;color:var(--tx2)">Hız</label>
-        <select class="inp" id="replay-speed" style="width:85px" onchange="setReplaySpeed(this.value)">
-          <option value="0.5">0.5x</option>
-          <option value="1" selected>1x</option>
-          <option value="2">2x</option>
-          <option value="4">4x</option>
-        </select>
-        <span id="replay-meta" style="font-size:11px;color:var(--tx2);margin-left:auto"></span>
+    <div style="display:grid;grid-template-rows:auto 1fr;gap:12px">
+      <div class="card" style="margin-bottom:0">
+        <h3>▶ Gerçek-Zamanlı Sohbet Simülasyonu</h3>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn grn" onclick="playReplay()">▶ Oynat</button>
+          <button class="btn ghost" onclick="pauseReplay()">⏸ Duraklat</button>
+          <button class="btn ghost" onclick="resetReplay()">⏮ Sıfırla</button>
+          <label style="font-size:11px;color:var(--tx2)">Hız</label>
+          <select class="inp" id="replay-speed" style="width:85px" onchange="setReplaySpeed(this.value)">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+          </select>
+          <span id="replay-meta" style="font-size:11px;color:var(--tx2);margin-left:auto"></span>
+        </div>
+        <div id="replay-stream" style="max-height:340px;overflow-y:auto"></div>
       </div>
-      <div id="replay-stream" style="max-height:560px;overflow-y:auto"></div>
+      <div class="card" style="margin-bottom:0">
+        <h3>🚨 Fişlenen &amp; Banlanan Kullanıcılar — Bu Akış</h3>
+        <p style="font-size:10px;color:var(--tx2);margin-bottom:8px">
+          Antisemitizm · Nazizm · Beyaz Üstünlükçülük · Hristiyan Radikalizm · Küfür/Hakaret tespit sonuçları.
+          Kullanıcıya tıklayın → profil + tetikleyici mesajlar.
+        </p>
+        <div id="replay-flagged-panel" style="max-height:320px;overflow-y:auto">
+          <p style="color:var(--tx2);font-size:11px">Soldan bir sohbet penceresi seçin.</p>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -4133,6 +4453,10 @@ let threatChart = null, graphLoaded = false;
 let usersView = 'all';
 let usersSort = {key:'threat_score', dir:'desc'};
 let replayState = {windows:[],active:null,messages:[],idx:0,timer:null,playing:false,speed:1,lastTs:0};
+// Sohbet Akışı önbelleği — yalnızca "Yeniden Hesapla" düğmesiyle temizlenir
+let _replayWindowsCache = null;   // windows listesi
+let _replayMsgCache = {};         // video_id+date → messages[]
+let _replayFlagCache = {};        // video_id+date → flagged_users[]
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
@@ -4145,7 +4469,7 @@ function nav(name,el){
   else if(name==='users') loadUsers(1);
   else if(name==='ban-correlation') initBannedCorrelationTab();
   else if(name==='messages') loadMsgs(1);
-  else if(name==='replay-flow') loadReplayWindows();
+  else if(name==='replay-flow') loadReplayWindows(false);  // önbellekli
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
   else if(name==='settings') loadSysStatus();
@@ -4545,13 +4869,13 @@ function showUser(author){
   $.get('/api/user/'+encodeURIComponent(author),function(d){
     if(d.error){$('#modal-body').html('<p style="color:var(--red)">'+d.error+'</p>');return;}
     const bars=[
-      {l:'Bot Olasılığı',v:d.bot_prob||0,c:'var(--blu)'},
-      {l:'Nefret Söylemi',v:d.hate_score||0,c:'var(--red)'},
-      {l:'Anti-Semitizm',v:d.antisemitism_score||0,c:'#8B0000'},
-      {l:'Groyper',v:d.groyper_score||0,c:'#555'},
-      {l:'Stalker',v:d.stalker_score||0,c:'var(--pur)'},
-      {l:'Bot Sinyali (Hawkes)',v:(d.identity_vector?.bot_signal||0),c:'var(--blu)'},
-      {l:'İnsanlık Skoru',v:d.human_score||0.5,c:'var(--grn)'},
+      {l:'Bot Olasılığı',        v:d.bot_prob||0,                c:'var(--blu)'},
+      {l:'Nefret Söylemi',       v:d.hate_score||0,              c:'var(--red)'},
+      {l:'Anti-Semitizm',        v:d.antisemitism_score||0,      c:'#8B0000'},
+      {l:'Groyper / Beyaz Üst.', v:d.groyper_score||0,           c:'#7a1c1c'},
+      {l:'Stalker',              v:d.stalker_score||0,           c:'var(--pur)'},
+      {l:'Bot Sinyali (Hawkes)', v:(d.identity_vector?.bot_signal||0), c:'var(--blu)'},
+      {l:'İnsanlık Skoru',       v:d.human_score||0.5,           c:'var(--grn)'},
     ];
     let h=`<div class="dr"><label>Tehdit Seviyesi</label>
       <span class="badge bg-${LVL2CLS[d.threat_level]||'G'}" style="font-size:12px;padding:3px 10px">${d.threat_level} (${((d.threat_score||0)*100).toFixed(1)}%)</span>
@@ -4566,6 +4890,42 @@ function showUser(author){
     if(d.subscriber_count) h+=`<div class="dr"><label>Abone</label><span>${d.subscriber_count.toLocaleString()}</span></div>`;
     if(d.hmm_state) h+=`<div class="dr"><label>HMM Durumu</label><span style="color:var(--acc)">${d.hmm_state}</span></div>`;
     if(d.game_strategy) h+=`<div class="dr"><label>Önerilen Mod Aksiyonu</label><span style="color:var(--ylw)">${d.game_strategy}</span></div>`;
+
+    // ── Fişleme gerekçeleri (aktif replay önbelleğinden) ──────────────────────
+    let allFlagEntries = [];
+    Object.values(_replayFlagCache).forEach(list=>{
+      (list||[]).forEach(f=>{ if(f.author===author) allFlagEntries.push(f); });
+    });
+    if(allFlagEntries.length){
+      const reasons = [...new Set(allFlagEntries.flatMap(f=>f.reasons||[]))];
+      const trigMsgs = allFlagEntries.flatMap(f=>f.trigger_messages||[]).slice(0,6);
+      if(reasons.length){
+        h+=`<div class="card" style="margin-top:10px;border:1px solid #8B0000">
+          <h3 style="color:var(--red)">🚨 Fişleme Gerekçeleri</h3>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">`;
+        reasons.forEach(r=>{
+          const info = _REASON_LABELS[r]||{lbl:r,cls:'Y'};
+          h+=`<span class="badge bg-${info.cls}">${info.lbl}</span>`;
+        });
+        h+=`</div>`;
+        if(trigMsgs.length){
+          h+=`<h4 style="font-size:11px;color:var(--tx2);margin-bottom:5px">Tetikleyici Mesajlar</h4>`;
+          trigMsgs.forEach(tm=>{
+            const tts = tm.timestamp ? new Date(tm.timestamp*1000).toLocaleString() : '';
+            const termBadges = (tm.matched_terms||[]).map(t=>
+              `<span style="background:#8B000044;color:#ff8080;font-size:9px;padding:1px 4px;border-radius:3px">${t}</span>`
+            ).join(' ');
+            h+=`<div style="margin-bottom:5px;padding:5px 8px;background:var(--bg3);border-radius:5px;font-size:10px">
+              <div style="color:var(--tx2);margin-bottom:2px">${tts} — <b style="color:var(--ylw)">${(tm.reasons||[]).join(' · ')}</b></div>
+              <div style="color:var(--tx1);line-height:1.4">${(tm.message||'').substring(0,200)}</div>
+              ${termBadges ? `<div style="margin-top:3px">${termBadges}</div>` : ''}
+            </div>`;
+          });
+        }
+        h+=`</div>`;
+      }
+    }
+
     if(d.ollama_summary) h+=`<div class="card" style="margin-top:10px"><h3>🤖 AI Analizi (Ollama ${d.ollama_action||''})</h3>
       <p style="font-size:12px;color:var(--tx2);line-height:1.6">${d.ollama_summary}</p></div>`;
     if(d.identity_links&&d.identity_links.length){
@@ -4744,27 +5104,80 @@ function fmtReplayDate(raw){
   return raw;
 }
 
-function loadReplayWindows(){
+// önbellek anahtarı üretici
+function _replayCacheKey(win){ return (win.video_id||'')+'|'+(win.window_date||''); }
+
+/**
+ * loadReplayWindows(force)
+ *   force=false → önbellekten yükle (eğer varsa)
+ *   force=true  → önbelleği temizle, API'den yeniden hesapla
+ */
+function loadReplayWindows(force){
+  if(!force && _replayWindowsCache !== null){
+    // Önbellekten render et
+    _renderReplayWindows(_replayWindowsCache);
+    status('✅ Önbellekten yüklendi',1500);
+    return;
+  }
+  if(force){
+    _replayWindowsCache = null;
+    _replayMsgCache = {};
+    _replayFlagCache = {};
+  }
   status('Sohbet pencereleri yükleniyor...');
   $.get('/api/replay/windows',{limit:120},function(d){
-    replayState.windows = d.windows || [];
-    $('#replay-window-count').text(`${replayState.windows.length} pencere`);
-    let h='';
-    replayState.windows.forEach((w,i)=>{
-      const dt = fmtReplayDate(w.window_date||'');
-      const ttl = (w.title || w.video_id || 'Video').substring(0,55);
-      const dur = (w.min_timestamp&&w.max_timestamp)
-        ? `${new Date(w.min_timestamp*1000).toLocaleTimeString()} - ${new Date(w.max_timestamp*1000).toLocaleTimeString()}`
-        : '-';
-      h += `<div class="msg" style="cursor:pointer" onclick="openReplayWindow(${i})">
-        <div class="meta"><b>${dt}</b><span style="margin-left:auto;color:var(--tx2)">${w.message_count||0} mesaj</span></div>
-        <div class="txt">${hl(ttl,'')}</div>
-        <div class="meta" style="margin-top:4px"><span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span><span style="font-size:10px;color:var(--tx2)">${dur}</span></div>
-      </div>`;
-    });
-    $('#replay-window-list').html(h || '<p style="color:var(--tx2)">Sohbet penceresi bulunamadı</p>');
-    status('✅ Sohbet pencereleri hazır',2000);
+    _replayWindowsCache = d.windows || [];
+    _renderReplayWindows(_replayWindowsCache);
+    if(force && _replayWindowsCache.length){
+      // force=true → tüm başlıklar için fişlenen kullanıcı hesaplamasını arka planda çalıştır
+      let done = 0;
+      const total = _replayWindowsCache.length;
+      status('⏳ Tüm pencereler hesaplanıyor (0/' + total + ')...');
+      _replayWindowsCache.forEach(function(win){
+        const ckey = _replayCacheKey(win);
+        $.get('/api/replay/flagged-users',{
+          video_id:    win.video_id    || '',
+          window_date: win.window_date || '',
+          threshold:   0.30
+        },function(fd){
+          _replayFlagCache[ckey] = fd.flagged_users || [];
+          done++;
+          if(done < total){
+            status('⏳ Tüm pencereler hesaplanıyor (' + done + '/' + total + ')...');
+          } else {
+            status('✅ Tüm başlıklar için hesaplama tamamlandı', 3000);
+          }
+        }).fail(function(){
+          _replayFlagCache[ckey] = [];
+          done++;
+          if(done === total){
+            status('✅ Hesaplama tamamlandı (bazı pencereler hatalı olabilir)', 3000);
+          }
+        });
+      });
+    } else {
+      status('✅ Sohbet pencereleri hazır', 2000);
+    }
   }).fail(()=>status('❌ Sohbet pencereleri yüklenemedi',3000));
+}
+
+function _renderReplayWindows(windows){
+  replayState.windows = windows;
+  $('#replay-window-count').text(`${windows.length} pencere`);
+  let h='';
+  windows.forEach((w,i)=>{
+    const dt = fmtReplayDate(w.window_date||'');
+    const ttl = (w.title || w.video_id || 'Video').substring(0,55);
+    const dur = (w.min_timestamp&&w.max_timestamp)
+      ? `${new Date(w.min_timestamp*1000).toLocaleTimeString()} - ${new Date(w.max_timestamp*1000).toLocaleTimeString()}`
+      : '-';
+    h += `<div class="msg" style="cursor:pointer" onclick="openReplayWindow(${i})">
+      <div class="meta"><b>${dt}</b><span style="margin-left:auto;color:var(--tx2)">${w.message_count||0} mesaj</span></div>
+      <div class="txt">${hl(ttl,'')}</div>
+      <div class="meta" style="margin-top:4px"><span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span><span style="font-size:10px;color:var(--tx2)">${dur}</span></div>
+    </div>`;
+  });
+  $('#replay-window-list').html(h || '<p style="color:var(--tx2)">Sohbet penceresi bulunamadı</p>');
 }
 
 function openReplayWindow(idx){
@@ -4775,35 +5188,178 @@ function openReplayWindow(idx){
   replayState.messages = [];
   replayState.idx = 0;
   replayState.lastTs = 0;
-  $('#replay-stream').html('<span class="spin"></span>');
-  $('#replay-meta').text('Sohbet yükleniyor...');
-  $.get('/api/replay/window/messages',{
-    video_id: win.video_id || '',
-    window_date: win.window_date || '',
-    limit: 5000
-  },function(d){
-    replayState.messages = d.messages || [];
+
+  const ckey = _replayCacheKey(win);
+
+  // ── Mesajları yükle (önbellekli) ─────────────────────────────────────────
+  function _loadMessages(cb){
+    if(_replayMsgCache[ckey]){
+      cb(_replayMsgCache[ckey]); return;
+    }
+    $('#replay-stream').html('<span class="spin"></span>');
+    $('#replay-meta').text('Sohbet yükleniyor...');
+    $.get('/api/replay/window/messages',{
+      video_id: win.video_id || '',
+      window_date: win.window_date || '',
+      limit: 5000
+    },function(d){
+      _replayMsgCache[ckey] = d.messages || [];
+      cb(_replayMsgCache[ckey]);
+    }).fail(function(){
+      $('#replay-stream').html('<p style="color:var(--red)">Mesajlar yüklenemedi</p>');
+      $('#replay-meta').text('Hata');
+    });
+  }
+
+  // ── Fişlenen kullanıcıları yükle (önbellekli) ────────────────────────────
+  function _loadFlagged(cb){
+    if(_replayFlagCache[ckey]){
+      cb(_replayFlagCache[ckey]); return;
+    }
+    $.get('/api/replay/flagged-users',{
+      video_id: win.video_id || '',
+      window_date: win.window_date || '',
+      threshold: 0.30
+    },function(d){
+      _replayFlagCache[ckey] = d.flagged_users || [];
+      cb(_replayFlagCache[ckey]);
+    }).fail(function(){ cb([]); });
+  }
+
+  _loadMessages(function(msgs){
+    replayState.messages = msgs;
     replayState.idx = 0;
     replayState.lastTs = 0;
     $('#replay-stream').html('<p style="color:var(--tx2)">Hazır. ▶ Oynat ile başlatın.</p>');
-    $('#replay-meta').text(`${fmtReplayDate(win.window_date||'')} · ${(d.messages||[]).length} mesaj`);
-  }).fail(function(){
-    $('#replay-stream').html('<p style="color:var(--red)">Mesajlar yüklenemedi</p>');
-    $('#replay-meta').text('Hata');
+    $('#replay-meta').text(`${fmtReplayDate(win.window_date||'')} · ${msgs.length} mesaj`);
+
+    _loadFlagged(function(flagged){
+      _renderFlaggedList(flagged, win);
+    });
   });
+}
+
+// ── Fişlenen kullanıcı listesi paneli ─────────────────────────────────────────
+const _REASON_LABELS = {
+  'BANLANDI':          {lbl:'🚫 BANLANDI',        cls:'R'},
+  'TEHDİT:CRIMSON':   {lbl:'🔴 CRIMSON',          cls:'C'},
+  'TEHDİT:RED':       {lbl:'🟥 RED',              cls:'R'},
+  'ANTİSEMİTİZM':     {lbl:'✡ ANTİSEMİTİZM',     cls:'C'},
+  'NAZİZM':           {lbl:'☠ NAZİZM',            cls:'C'},
+  'BEYAZ_ÜSTÜNLÜK':   {lbl:'⬜ BEYAZ ÜST.',       cls:'R'},
+  'HRİSTİYAN_RADİKAL':{lbl:'✝ HRİSTİYAN RAD.',   cls:'O'},
+  'KOMPLO_TROL':      {lbl:'🕸 KOMPLO/TROL',      cls:'Y'},
+  'KÜFÜR/HAKARET':    {lbl:'🤬 KÜFÜR',            cls:'O'},
+  'NEFRET_SÖYLEMİ':   {lbl:'⚡ NEFRET',           cls:'R'},
+};
+
+function _renderFlaggedList(flagged, win){
+  const panel = $('#replay-flagged-panel');
+  if(!flagged || !flagged.length){
+    panel.html(`<p style="color:var(--tx2);font-size:11px">Bu akışta fişlenen kullanıcı bulunamadı.</p>`);
+    return;
+  }
+  let h = `<div style="margin-bottom:8px;color:var(--tx2);font-size:11px">
+    <b style="color:var(--red)">${flagged.length}</b> fişlenen kullanıcı — ${fmtReplayDate(win.window_date||win.video_id||'')}
+  </div>`;
+  flagged.forEach((u,ui)=>{
+    const cls = LVL2CLS[u.threat_level]||'G';
+    const bannedBadge = u.banned ? `<span class="badge bg-R" style="font-size:9px">BANLANDI</span>` : '';
+    // Reason badge'leri
+    const reasonBadges = (u.reasons||[]).map(r=>{
+      const info = _REASON_LABELS[r] || {lbl:r, cls:'Y'};
+      return `<span class="badge bg-${info.cls}" style="font-size:8px;margin:1px">${info.lbl}</span>`;
+    }).join('');
+    // Tetikleyen mesajlar
+    let trigH = '';
+    (u.trigger_messages||[]).slice(0,3).forEach(tm=>{
+      const tts = tm.timestamp ? new Date(tm.timestamp*1000).toLocaleString() : '';
+      const termBadges = (tm.matched_terms||[]).map(t=>
+        `<span style="background:#8B000033;color:#ff8080;font-size:9px;padding:1px 4px;border-radius:3px">${t}</span>`
+      ).join(' ');
+      const reasonText = (tm.reasons||[]).join(' · ');
+      // ── YouTube zaman bağlantısı ──────────────────────────────────────────
+      const ytBtn = tm.watch_url
+        ? `<a href="${tm.watch_url}" target="_blank" rel="noopener noreferrer"
+              style="display:inline-flex;align-items:center;gap:3px;margin-top:4px;
+                     font-size:9px;padding:1px 6px;border-radius:3px;text-decoration:none;
+                     background:#8B0000;color:#fff;font-weight:600">
+              ▶ YT ${tm.watch_seconds||0}. sn</a>`
+        : '';
+      trigH += `<div style="margin-top:5px;padding:5px 7px;background:var(--bg3);border-radius:5px;font-size:10px">
+        <div style="color:var(--tx2);margin-bottom:2px">${tts} — <b style="color:var(--ylw)">${reasonText}</b></div>
+        <div style="color:var(--tx1);line-height:1.4">${(tm.message||'').substring(0,150)}</div>
+        ${termBadges ? `<div style="margin-top:3px">${termBadges}</div>` : ''}
+        ${ytBtn}
+      </div>`;
+    });
+
+    h += `<div class="msg" style="border-left:3px solid ${CLR[cls]||'#666'};margin-bottom:7px">
+      <div class="meta" style="flex-wrap:wrap;gap:3px">
+        <a href="#" onclick="showUser('${u.author}')" style="font-weight:700">@${u.author}</a>
+        <span class="badge bg-${cls}" style="font-size:9px">${u.threat_level}</span>
+        ${bannedBadge}
+        <span style="margin-left:auto;font-size:10px;color:var(--tx2)">
+          Tehdit: ${((u.threat_score||0)*100).toFixed(0)}% · Nefret: ${((u.hate_score||0)*100).toFixed(0)}%
+        </span>
+      </div>
+      <div style="margin-top:4px;flex-wrap:wrap;display:flex;gap:2px">${reasonBadges}</div>
+      <div id="flagtrig-${ui}" style="display:none">${trigH}</div>
+      <div style="margin-top:5px">
+        <button class="btn ghost" style="font-size:9px;padding:1px 5px"
+          onclick="$('#flagtrig-${ui}').toggle()">📋 Tetikleyici Mesajlar</button>
+        <button class="btn red" style="font-size:9px;padding:1px 5px;margin-left:3px"
+          onclick="banUser('${u.author}')">🚫 Yasakla</button>
+      </div>
+    </div>`;
+  });
+  panel.html(h);
 }
 
 function setReplaySpeed(v){
   replayState.speed = Math.max(0.25, Number(v)||1);
 }
 
+// ── Simülasyon mesaj render — ban/hate etiketli ───────────────────────────────
+const _HATE_BADGE_MAP = {
+  'CRIMSON': {ico:'🔴',lbl:'CRIMSON'},
+  'RED':     {ico:'🟥',lbl:'RED'},
+  'ORANGE':  {ico:'🟠',lbl:'ORANGE'},
+};
+
 function appendReplayMessage(m){
   const cls=LVL2CLS[m.threat_level||'GREEN']||'G';
   const ts=m.timestamp?new Date(m.timestamp*1000).toLocaleString():'';
-  const msg = `<div class="msg ${['R','C','O'].includes(cls)?'hi':''}">
-      <div class="meta">
+
+  // Aktif penceredeki fişlenen kullanıcı mı?
+  const ckey = replayState.active ? _replayCacheKey(replayState.active) : '';
+  const flaggedList = ckey ? (_replayFlagCache[ckey]||[]) : [];
+  const flagEntry = flaggedList.find(f => f.author === m.author);
+
+  // Ekstra rozet / arka plan
+  let extraBadges = '';
+  let highlightStyle = '';
+  if(flagEntry){
+    if(flagEntry.banned){
+      extraBadges += `<span class="badge bg-R" style="font-size:8px">🚫 BANLANDI</span>`;
+      highlightStyle = 'border-left:3px solid #E74C3C;';
+    }
+    (flagEntry.reasons||[]).forEach(r=>{
+      const info = _REASON_LABELS[r];
+      if(info && !['BANLANDI','TEHDİT:RED','TEHDİT:CRIMSON'].includes(r)){
+        extraBadges += `<span class="badge bg-${info.cls}" style="font-size:8px">${info.lbl}</span>`;
+      }
+    });
+    if(!highlightStyle && ['RED','CRIMSON'].includes(m.threat_level||'')){
+      highlightStyle = 'border-left:3px solid #8B0000;';
+    }
+  }
+
+  const msg = `<div class="msg ${['R','C','O'].includes(cls)?'hi':''}" style="${highlightStyle}">
+      <div class="meta" style="flex-wrap:wrap;gap:3px">
         <a href="#" onclick="showUser('${m.author}')">@${m.author}</a>
         <span class="badge bg-${cls}" style="font-size:9px">${m.threat_level||'GREEN'}</span>
+        ${extraBadges}
         <span style="font-size:10px">${m.source_type||''}</span>
         <span>${ts}</span>
       </div>
@@ -5448,7 +6004,7 @@ def create_app():
         if flt: wh+=" AND author LIKE ?"; prms.append(f"%{flt}%")
         if thr: wh+=" AND threat_level=?"; prms.append(thr)
         if banned in ("1","true","True"):
-            wh+=" AND game_strategy='BAN'"
+            wh+=" AND (game_strategy='BAN' OR is_banned=1)"
         tot=(db_exec(f"SELECT COUNT(*) c FROM user_profiles {wh}",tuple(prms),fetch="one") or {}).get("c",0)
         rows=db_exec(f"SELECT * FROM user_profiles {wh} ORDER BY {sort_col} {sort_dir}, threat_score DESC LIMIT ? OFFSET ?",
                      tuple(prms)+(sz,off),fetch="all") or []
@@ -5475,9 +6031,11 @@ def create_app():
         forms = candidate_author_forms(author)
         if not forms:
             return jsonify({"success":False,"message":"Geçersiz kullanıcı adı"}), 400
+        now_ts = int(time.time())
         db_exec(
-            f"UPDATE user_profiles SET game_strategy='BAN' WHERE lower(trim(author)) IN ({','.join(['?']*len(forms))})",
-            tuple(forms)
+            f"UPDATE user_profiles SET game_strategy='BAN', is_banned=1, banned_at=?"
+            f" WHERE lower(trim(author)) IN ({','.join(['?']*len(forms))})",
+            (now_ts,) + tuple(forms)
         )
         return jsonify({"success":True,"message":f"@{author} BAN işaretlendi"})
 
@@ -5487,7 +6045,8 @@ def create_app():
         if not forms:
             return jsonify({"success":False,"message":"Geçersiz kullanıcı adı"}), 400
         db_exec(
-            f"UPDATE user_profiles SET game_strategy='BEHAVE' WHERE lower(trim(author)) IN ({','.join(['?']*len(forms))})",
+            f"UPDATE user_profiles SET game_strategy='BEHAVE', is_banned=0, banned_at=0"
+            f" WHERE lower(trim(author)) IN ({','.join(['?']*len(forms))})",
             tuple(forms)
         )
         return jsonify({"success":True,"message":f"@{author} BAN kaldırıldı"})
@@ -5562,9 +6121,11 @@ def create_app():
         not_found = [a for a in clean if a not in found_keys]
 
         if found_authors:
+            now_ts = int(time.time())
             db_exec(
-                f"UPDATE user_profiles SET game_strategy='BAN' WHERE author IN ({','.join(['?']*len(found_authors))})",
-                tuple(found_authors)
+                f"UPDATE user_profiles SET game_strategy='BAN', is_banned=1, banned_at=?"
+                f" WHERE author IN ({','.join(['?']*len(found_authors))})",
+                (now_ts,) + tuple(found_authors)
             )
 
         return jsonify({
@@ -5586,7 +6147,8 @@ def create_app():
             banned_author = (request.args.get("banned_author", "") or "").strip()
 
             banned_users = db_exec(
-                "SELECT author, q_state, antisemitism_score FROM user_profiles WHERE game_strategy='BAN'",
+                "SELECT author, q_state, antisemitism_score FROM user_profiles"
+                " WHERE game_strategy='BAN' OR is_banned=1",
                 fetch="all"
             ) or []
             if banned_author:
@@ -5612,7 +6174,7 @@ def create_app():
                 SELECT id, author, video_id, title, timestamp, message
                 FROM messages
                 WHERE deleted=0 AND author IN (
-                    SELECT author FROM user_profiles WHERE game_strategy='BAN'
+                    SELECT author FROM user_profiles WHERE game_strategy='BAN' OR is_banned=1
                 )
                 ORDER BY timestamp DESC
                 LIMIT 2500
@@ -5775,7 +6337,7 @@ def create_app():
 
             # ── Fetch all banned users ────────────────────────────────────────
             banned_rows = db_exec(
-                "SELECT * FROM user_profiles WHERE game_strategy='BAN' ORDER BY threat_score DESC",
+                "SELECT * FROM user_profiles WHERE game_strategy='BAN' OR is_banned=1 ORDER BY threat_score DESC",
                 fetch="all") or []
 
             if not banned_rows:
@@ -6199,6 +6761,128 @@ def create_app():
         out = _attach_watch_links(rows)
 
         return jsonify({"messages":out,"total":tot})
+
+    @app.route("/api/replay/flagged-users")
+    def api_replay_flagged_users():
+        """
+        Belirli bir video için:
+        - Banlanan kullanıcılar
+        - Yüksek nefret skoru (sözlük + BART) olan mesajları olan kullanıcılar
+        Her kullanıcıya fişleme gerekçesi olan mesajlar da eklenir.
+        """
+        vid      = (request.args.get("video_id","") or "").strip()
+        win_date = (request.args.get("window_date","") or "").strip()
+        threshold = float(request.args.get("threshold","0.35"))
+
+        wh: List[str] = ["m.deleted=0"]
+        prms: List    = []
+        if vid:
+            wh.append("m.video_id=?"); prms.append(vid)
+        if win_date:
+            wh.append("COALESCE(m.video_date,'')=?"); prms.append(win_date)
+        where_sql = " AND ".join(wh)
+
+        rows = db_exec(
+            "SELECT m.id, m.author, m.message, m.timestamp,"
+            " m.video_id, m.video_date, m.source_type,"
+            " up.threat_level, up.threat_score, up.hate_score,"
+            " up.antisemitism_score, up.bot_prob, up.game_strategy,"
+            " up.ollama_action, up.hmm_state, up.is_banned"
+            " FROM messages m"
+            " LEFT JOIN user_profiles up ON m.author=up.author"
+            f" WHERE {where_sql}"
+            " ORDER BY m.timestamp ASC",
+            tuple(prms), fetch="all"
+        ) or []
+
+        # Her mesaj için sözlük tabanlı hızlı kontrol
+        flagged: Dict[str, dict] = {}
+        for r in rows:
+            author   = r.get("author","")
+            text     = r.get("message","") or ""
+            ts       = r.get("timestamp",0) or 0
+            t_lvl    = r.get("threat_level","GREEN") or "GREEN"
+            t_score  = float(r.get("threat_score",0) or 0)
+            h_score  = float(r.get("hate_score",0) or 0)
+            anti_sc  = float(r.get("antisemitism_score",0) or 0)
+            banned   = int(r.get("is_banned") or 0) == 1 or \
+                       (r.get("game_strategy","") or "") in ("BAN","BANNED") or \
+                       (r.get("ollama_action","") or "") in ("BAN","BANNED")
+
+            kw = keyword_hate_score(text)
+            kw_overall = kw.get("overall",0.0)
+            matched    = kw.get("matched_terms",[])
+
+            # Fişleme kriterleri
+            is_flagged  = banned or (kw_overall >= threshold) or \
+                          (h_score >= threshold) or (anti_sc >= threshold) or \
+                          t_lvl in ("RED","CRIMSON","ORANGE")
+            if not is_flagged:
+                continue
+
+            # Fişleme kategorileri
+            reasons: List[str] = []
+            if banned:                          reasons.append("BANLANDI")
+            if t_lvl in ("CRIMSON","RED"):      reasons.append(f"TEHDİT:{t_lvl}")
+            if kw.get("antisemitism",0) >= threshold:
+                reasons.append("ANTİSEMİTİZM")
+            if kw.get("nazism",0) >= threshold:        reasons.append("NAZİZM")
+            if kw.get("white_supremacy",0) >= threshold:
+                reasons.append("BEYAZ_ÜSTÜNLÜK")
+            if kw.get("christian_radicalism",0) >= threshold:
+                reasons.append("HRİSTİYAN_RADİKAL")
+            if kw.get("conspiracy_troll",0) >= threshold:
+                reasons.append("KOMPLO_TROL")
+            if kw.get("profanity_tr",0) >= 0.50:       reasons.append("KÜFÜR/HAKARET")
+            if h_score >= threshold and not reasons:    reasons.append("NEFRET_SÖYLEMİ")
+
+            trigger_msg = {
+                "msg_id":      r.get("id",""),
+                "message":     text[:300],
+                "timestamp":   ts,
+                "video_id":    (r.get("video_id") or "").strip(),
+                "video_date":  (r.get("video_date") or "").strip(),
+                "source_type": (r.get("source_type") or "").strip(),
+                "reasons":     reasons,
+                "kw_scores":   {k:v for k,v in kw.items() if k not in ("matched_terms","overall")},
+                "matched_terms": matched,
+                "threat_level": t_lvl,
+            }
+
+            if author not in flagged:
+                flagged[author] = {
+                    "author":             author,
+                    "banned":             banned,
+                    "threat_level":       t_lvl,
+                    "threat_score":       round(t_score,3),
+                    "hate_score":         round(h_score,3),
+                    "antisemitism_score": round(anti_sc,3),
+                    "reasons":            set(),
+                    "trigger_messages":   [],
+                    "hmm_state":          r.get("hmm_state","NORMAL") or "NORMAL",
+                }
+            flagged[author]["reasons"].update(reasons)
+            if len(flagged[author]["trigger_messages"]) < 5:
+                flagged[author]["trigger_messages"].append(trigger_msg)
+
+        # Serialize & sort
+        out = []
+        for entry in flagged.values():
+            entry["reasons"] = sorted(entry["reasons"])
+            # ── YouTube zaman bağlantıları: _attach_watch_links modülüyle hesapla ──
+            try:
+                entry["trigger_messages"] = _attach_watch_links(entry["trigger_messages"])
+            except Exception:
+                pass
+            out.append(entry)
+        out.sort(key=lambda x: (
+            x["banned"],
+            x["threat_score"],
+            x["hate_score"],
+            x["antisemitism_score"]
+        ), reverse=True)
+
+        return jsonify({"flagged_users": out, "total": len(out)})
 
     @app.route("/api/replay/windows")
     def api_replay_windows():
