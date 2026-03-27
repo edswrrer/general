@@ -174,6 +174,8 @@ _DEFAULT_CFG = {
     "manual_login_timeout_sec": 180,
     "cookies_file":         "",
     "cookies_from_browser": "",
+    "supplement_match_days": 14,
+    "supplement_title_min_score": 0.30,
 }
 
 def load_config(cfg_file: str = "yt_guardian_config.json") -> dict:
@@ -2497,6 +2499,93 @@ def _fetch_video_metadata(video_id: str) -> dict:
         log.warning("_fetch_video_metadata hatası %s: %s", video_id, e)
     return {}
 
+def _norm_title_for_match(text: str) -> str:
+    t = (text or "").strip().lower()
+    if not t:
+        return ""
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
+    t = re.sub(r"[^a-z0-9]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+def _title_similarity(a: str, b: str) -> float:
+    na, nb = _norm_title_for_match(a), _norm_title_for_match(b)
+    if not na or not nb:
+        return 0.0
+    ta, tb = set(na.split()), set(nb.split())
+    if not ta or not tb:
+        return 0.0
+    jacc = len(ta & tb) / max(1, len(ta | tb))
+    contain = 1.0 if (na in nb or nb in na) else 0.0
+    return max(jacc, contain * 0.75)
+
+def _find_best_supplement_slot(video_id: str, vid_date: str, vid_title: str) -> Tuple[Optional[dict], Optional[int], float, int]:
+    """
+    Takviye videosu için en uygun slotu seç:
+      - Öncelik: boş slotlar (chat_count=0)
+      - Skor: başlık benzerliği + tarih yakınlığı
+      - Aynı video_id hariç tutulur
+    """
+    rows = db_exec(
+        "SELECT video_id, title, video_date, chat_count, scraped_at"
+        " FROM scraped_videos"
+        " ORDER BY scraped_at ASC",
+        fetch="all"
+    ) or []
+    empty_count = sum(1 for r in rows if int(r.get("chat_count") or 0) == 0)
+
+    if not rows:
+        return None, None, 0.0, 0
+
+    max_days = max(1, int(CFG.get("supplement_match_days", 14) or 14))
+    min_title = float(CFG.get("supplement_title_min_score", 0.30) or 0.30)
+
+    d_vid = None
+    if vid_date:
+        try:
+            d_vid = datetime.strptime(vid_date[:8], "%Y%m%d")
+        except ValueError:
+            d_vid = None
+
+    best = None
+    best_score = -1.0
+    best_delta = None
+
+    for slot in rows:
+        sid = (slot.get("video_id") or "").strip()
+        if not sid or sid == video_id:
+            continue
+
+        s_title = (slot.get("title") or "").strip()
+        t_score = _title_similarity(vid_title, s_title)
+        delta_days = None
+        d_score = 0.0
+
+        s_date = (slot.get("video_date") or "").replace("-", "").strip()
+        if d_vid and s_date:
+            try:
+                d_slot = datetime.strptime(s_date[:8], "%Y%m%d")
+                delta_days = abs((d_vid - d_slot).days)
+                d_score = max(0.0, 1.0 - (delta_days / float(max_days)))
+            except ValueError:
+                delta_days = None
+
+        empty_bonus = 0.15 if int(slot.get("chat_count") or 0) == 0 else 0.0
+        score = (0.65 * t_score) + (0.35 * d_score) + empty_bonus
+
+        hard_accept = (delta_days is not None and delta_days <= max_days and t_score >= min_title)
+        soft_accept = (t_score >= min_title and (d_vid is None or d_score > 0.0))
+        if not (hard_accept or soft_accept):
+            continue
+
+        if score > best_score:
+            best = dict(slot)
+            best_score = score
+            best_delta = delta_days
+
+    return best, best_delta, best_score, empty_count
+
 
 def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     """
@@ -2504,28 +2593,17 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     çekilemeyen aralıklara algoritmik olarak yerleştirir.
 
     Algoritma:
-      1. scraped_videos tablosundan chat_count=0 olan ilk N videoyu al
-         (bunlar gerçek zamanlı taramanın boş bıraktığı slotlardır)
-      2. yt-dlp ile verilen video_id'nin tarih/başlık bilgisini çek
-      3. Video tarihi, boş slotlardan biriyle ±7 gün içindeyse → eşleştir
-         Tarih yoksa → tarihi olmayan ilk boş slota fallback
-      4. nlp_auto_replay_chat() ile chat verisini çek ve DB'ye yaz
-      5. scraped_videos kaydını güncelle (source_type='replay_supplement')
-      6. Sonuç raporunu döndür
+      1. yt-dlp ile verilen video_id'nin tarih/başlık bilgisini çek
+      2. scraped_videos içinden en uygun slotu seç:
+         - başlık benzerliği + tarih yakınlığı
+         - boş slotlara (chat_count=0) öncelik bonusu
+      3. nlp_auto_replay_chat() ile chat verisini çek ve DB'ye yaz
+      4. scraped_videos kaydını güncelle (source_type='replay_supplement')
+      5. Sonuç raporunu döndür
     """
     log.info("📌 NLP Takviye başlıyor: %s", video_id)
 
-    # ── 1. Boş chat slotları ─────────────────────────────────────────────────
-    empty_slots = db_exec(
-        "SELECT video_id, title, video_date, chat_count, scraped_at"
-        " FROM scraped_videos"
-        " WHERE (chat_count IS NULL OR chat_count = 0)"
-        " ORDER BY scraped_at ASC LIMIT 5",
-        fetch="all"
-    ) or []
-    log.info("Boş replay-chat slotu sayısı: %d", len(empty_slots))
-
-    # ── 2. Video metadata ─────────────────────────────────────────────────────
+    # ── 1. Video metadata ─────────────────────────────────────────────────────
     vid_meta  = _fetch_video_metadata(video_id)
     vid_date  = vid_meta.get("video_date", "")
     vid_title = title or vid_meta.get("title", "") or video_id
@@ -2533,56 +2611,28 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     log.info("Takviye video: id=%s  tarih=%s  başlık=%s",
              video_id, vid_date, vid_title[:50])
 
-    # ── 3. Tarih eşleştirme ───────────────────────────────────────────────────
-    matched_slot: Optional[dict] = None
-    match_delta_days: Optional[int] = None
-
-    if vid_date and empty_slots:
-        try:
-            d_vid = datetime.strptime(vid_date[:8], "%Y%m%d")
-        except ValueError:
-            d_vid = None
-
-        if d_vid:
-            for slot in empty_slots:
-                slot_date = (slot.get("video_date") or "").replace("-", "")
-                if not slot_date:
-                    continue
-                try:
-                    d_slot = datetime.strptime(slot_date[:8], "%Y%m%d")
-                    delta  = abs((d_vid - d_slot).days)
-                    if delta <= 7:
-                        matched_slot      = dict(slot)
-                        match_delta_days  = delta
-                        log.info("✅ Tarih eşleşti: takviye=%s ↔ slot=%s (±%d gün)",
-                                 video_id, slot["video_id"], delta)
-                        break
-                except ValueError:
-                    continue
-
-    # Tarihsiz boş slotlara fallback
-    if matched_slot is None and empty_slots:
-        for slot in empty_slots:
-            if not (slot.get("video_date") or "").strip():
-                matched_slot     = dict(slot)
-                match_delta_days = None
-                log.info("Tarihi bilinmeyen slot fallback: %s", slot["video_id"])
-                break
+    # ── 2. Slot eşleştirme (tarih + başlık, boş slot öncelikli) ─────────────
+    matched_slot, match_delta_days, match_score, empty_count = _find_best_supplement_slot(
+        video_id=video_id, vid_date=vid_date, vid_title=vid_title
+    )
+    log.info("Boş replay-chat slotu sayısı: %d", empty_count)
 
     if matched_slot:
-        log.info("Eşleşen slot: %s  (delta=%s gün)",
+        log.info("Eşleşen slot: %s  (delta=%s gün, skor=%.3f, başlık=%s)",
                  matched_slot["video_id"],
-                 match_delta_days if match_delta_days is not None else "N/A (tarihsiz slot)")
+                 match_delta_days if match_delta_days is not None else "N/A",
+                 match_score,
+                 (matched_slot.get("title") or "")[:50])
     else:
         log.info("Eşleşen slot bulunamadı — bağımsız kayıt yapılacak")
 
-    # ── 4. Chat verisini çek + NLP analiz ────────────────────────────────────
+    # ── 3. Chat verisini çek + NLP analiz ────────────────────────────────────
     nlp_result = nlp_auto_replay_chat(
         video_id, vid_title, vid_date, auto_analyze=True, filter_spam=True
     )
     msgs_saved = nlp_result.get("saved_to_db", 0)
 
-    # ── 5. scraped_videos güncelle ────────────────────────────────────────────
+    # ── 4. scraped_videos güncelle ────────────────────────────────────────────
     db_exec(
         "INSERT OR REPLACE INTO scraped_videos"
         " (video_id, title, video_date, source_type, chat_count)"
@@ -2606,7 +2656,8 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
         "matched_slot":      matched_slot["video_id"] if matched_slot else None,
         "slot_date":         (matched_slot.get("video_date") or "") if matched_slot else None,
         "delta_days":        match_delta_days,
-        "empty_slots_found": len(empty_slots),
+        "match_score":       round(float(match_score or 0.0), 4),
+        "empty_slots_found": int(empty_count),
         "status":            "ok" if msgs_saved > 0 else "no_chat_data",
         "nlp_result":        nlp_result,
     }
