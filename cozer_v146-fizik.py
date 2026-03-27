@@ -654,6 +654,18 @@ def db_exec_on(db_path: str, sql: str, params: tuple = (), fetch: str = None):
                 return [dict(r) for r in rows]
             return cur.lastrowid
 
+def _db_table_exists(db_path: str, table_name: str) -> bool:
+    try:
+        row = db_exec_on(
+            db_path,
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (table_name,),
+            fetch="one"
+        )
+        return bool(row)
+    except Exception:
+        return False
+
 def _bootstrap_replay_sessions():
     default_db = _normalize_db_path(CFG.get("db_path", "yt_guardian.db"))
     with _replay_session_lock:
@@ -4316,6 +4328,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
         <select class="inp" id="replay-session-select" style="min-width:170px" onchange="switchReplaySession(this.value)"></select>
         <input class="inp" id="replay-session-db" placeholder="DB yolu (oturuma özel)" style="min-width:220px;flex:1">
         <button class="btn ghost" onclick="createReplaySession()">🆕 Oturum Aç</button>
+        <button class="btn ghost" onclick="createFreshReplaySession()" title="Sadece bu tab için yeni bir SQLite DB oluşturur">🗃️ Yeni DB</button>
         <button class="btn red" onclick="loadReplayWindows(true)" title="Seçili oturum DB'sinde eksik akışları da tamamlayarak yeniden hesapla">🔄 Yeniden Hesapla</button>
         <span id="replay-window-count" style="font-size:11px;color:var(--tx2)"></span>
         <span style="font-size:10px;color:var(--tx2);margin-left:auto" title="Önbellekten yüklenir, sadece 'Yeniden Hesapla' ile güncellenir">💾 önbellekli</span>
@@ -5224,6 +5237,31 @@ function createReplaySession(){
     });
   }).fail(function(xhr){
     const err = (xhr.responseJSON||{}).error || 'Oturum açılamadı';
+    status('❌ '+err, 3500);
+  });
+}
+
+function createFreshReplaySession(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const dbPath = ($('#replay-session-db').val() || `yt_guardian_replay_${ts}.db`).trim();
+  const name = (prompt('Yeni DB oturumu adı:', 'Replay DB ' + now.toLocaleTimeString()) || '').trim();
+  if(!name){ status('❌ Oturum adı gerekli',2500); return; }
+  status('Yeni replay veritabanı oluşturuluyor...');
+  $.ajax({
+    url:'/api/replay/sessions',
+    method:'POST',
+    contentType:'application/json',
+    data:JSON.stringify({name:name, db_path:dbPath, fresh_db:1})
+  }).done(function(d){
+    replaySession.id = d.session_id || replaySession.id;
+    loadReplaySessions(function(){
+      status('✅ Yeni DB + oturum hazır', 3000);
+      loadReplayWindows(true);
+    });
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Yeni DB oturumu oluşturulamadı';
     status('❌ '+err, 3500);
   });
 }
@@ -7085,7 +7123,13 @@ def create_app():
             payload = request.get_json(silent=True) or request.form or {}
             name = str(payload.get("name", "") or "").strip() or f"Session {datetime.utcnow().strftime('%H:%M:%S')}"
             db_path = str(payload.get("db_path", "") or CFG.get("db_path", "yt_guardian.db")).strip()
+            fresh_db = str(payload.get("fresh_db", "0")).lower() in ("1", "true", "yes", "on")
             db_norm = _normalize_db_path(db_path)
+            if fresh_db:
+                p = Path(db_norm)
+                if p.exists():
+                    stem, suffix = p.stem, p.suffix or ".db"
+                    db_norm = str(p.with_name(f"{stem}_{int(time.time())}{suffix}"))
             init_db(db_norm)
             sid = hashlib.sha1(f"{name}|{db_norm}|{time.time()}".encode()).hexdigest()[:12]
             now = int(time.time())
@@ -7116,23 +7160,26 @@ def create_app():
         replay_session_id = str(payload.get("session_id", "") or "").strip()
         replay_db_path = str(payload.get("db_path", "") or "").strip()
         sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
+        init_db(target_db)
         limit = max(10, min(500, int(payload.get("limit", 200) or 200)))
         auto_fill_missing = str(payload.get("auto_fill_missing", "1")).lower() not in ("0", "false", "no")
 
         recalculated = []
         if auto_fill_missing:
-            missing = db_exec_on(
-                target_db,
-                "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date"
-                " FROM scraped_videos sv"
-                " LEFT JOIN ("
-                "   SELECT video_id, COUNT(*) AS cnt FROM messages WHERE deleted=0 GROUP BY video_id"
-                " ) m ON m.video_id = sv.video_id"
-                " WHERE COALESCE(m.cnt,0)=0"
-                " ORDER BY COALESCE(sv.video_date,''), sv.video_id"
-                " LIMIT ?",
-                (limit,), fetch="all"
-            ) or []
+            missing = []
+            if _db_table_exists(target_db, "scraped_videos"):
+                missing = db_exec_on(
+                    target_db,
+                    "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date"
+                    " FROM scraped_videos sv"
+                    " LEFT JOIN ("
+                    "   SELECT video_id, COUNT(*) AS cnt FROM messages WHERE deleted=0 GROUP BY video_id"
+                    " ) m ON m.video_id = sv.video_id"
+                    " WHERE COALESCE(m.cnt,0)=0"
+                    " ORDER BY COALESCE(sv.video_date,''), sv.video_id"
+                    " LIMIT ?",
+                    (limit,), fetch="all"
+                ) or []
 
             if missing:
                 old_db = CFG.get("db_path", "yt_guardian.db")
@@ -7200,35 +7247,51 @@ def create_app():
         replay_session_id = (request.args.get("session_id","") or "").strip()
         replay_db_path    = (request.args.get("db_path","") or "").strip()
         sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
+        init_db(target_db)
         lim = max(10, min(300, int(request.args.get("limit", 120))))
-        rows = db_exec_on(
-            target_db,
-            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
-            " MAX(title) AS title, COUNT(*) AS message_count,"
-            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
-            " FROM messages WHERE deleted=0"
-            " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
-            "), base AS ("
-            " SELECT COALESCE(sv.video_id,'') AS video_id,"
-            "        COALESCE(sv.video_date,'') AS video_date,"
-            "        COALESCE(NULLIF(sv.title,''), ma.msg_title, sv.video_id, '') AS title,"
-            "        COALESCE(ma.cnt,0) AS message_count,"
-            "        COALESCE(ma.min_ts,0) AS min_ts,"
-            "        COALESCE(ma.max_ts,0) AS max_ts"
-            " FROM scraped_videos sv"
-            " LEFT JOIN msg_agg ma ON ma.video_id = COALESCE(sv.video_id,'')"
-            " UNION ALL "
-            " SELECT ma.video_id, ma.video_date, COALESCE(ma.msg_title, ma.video_id, ''),"
-            "        ma.cnt, ma.min_ts, ma.max_ts"
-            " FROM msg_agg ma"
-            " WHERE NOT EXISTS (SELECT 1 FROM scraped_videos sv2 WHERE COALESCE(sv2.video_id,'') = ma.video_id)"
-            ")"
-            " SELECT video_date, video_id, title, message_count, min_ts, max_ts"
-            " FROM base"
-            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
-            " LIMIT ?",
-            (lim,), fetch="all"
-        ) or []
+        has_scraped = _db_table_exists(target_db, "scraped_videos")
+        if has_scraped:
+            rows = db_exec_on(
+                target_db,
+                "WITH msg_agg AS ("
+                " SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+                "        MAX(COALESCE(title,'')) AS msg_title, COUNT(*) AS cnt,"
+                "        MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
+                " FROM messages WHERE deleted=0"
+                " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
+                "), base AS ("
+                " SELECT COALESCE(sv.video_id,'') AS video_id,"
+                "        COALESCE(sv.video_date,'') AS video_date,"
+                "        COALESCE(NULLIF(sv.title,''), ma.msg_title, sv.video_id, '') AS title,"
+                "        COALESCE(ma.cnt,0) AS message_count,"
+                "        COALESCE(ma.min_ts,0) AS min_ts,"
+                "        COALESCE(ma.max_ts,0) AS max_ts"
+                " FROM scraped_videos sv"
+                " LEFT JOIN msg_agg ma ON ma.video_id = COALESCE(sv.video_id,'')"
+                " UNION ALL "
+                " SELECT ma.video_id, ma.video_date, COALESCE(ma.msg_title, ma.video_id, ''),"
+                "        ma.cnt, ma.min_ts, ma.max_ts"
+                " FROM msg_agg ma"
+                " WHERE NOT EXISTS (SELECT 1 FROM scraped_videos sv2 WHERE COALESCE(sv2.video_id,'') = ma.video_id)"
+                ")"
+                " SELECT video_date, video_id, title, message_count, min_ts, max_ts"
+                " FROM base"
+                " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+                " LIMIT ?",
+                (lim,), fetch="all"
+            ) or []
+        else:
+            rows = db_exec_on(
+                target_db,
+                "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+                " MAX(COALESCE(title,'')) AS title, COUNT(*) AS message_count,"
+                " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
+                " FROM messages WHERE deleted=0"
+                " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
+                " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+                " LIMIT ?",
+                (lim,), fetch="all"
+            ) or []
         out = []
         for r in rows:
             video_date = (r.get("video_date") or "").strip()
