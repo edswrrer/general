@@ -4674,6 +4674,12 @@ const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#349
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
 
+function invalidateReplayCaches(){
+  _replayWindowsCache = null;
+  _replayMsgCache = {};
+  _replayFlagCache = {};
+}
+
 function status(msg,ms=0){ $('#status').text(msg); if(ms) setTimeout(()=>$('#status').text(''),ms); }
 function nav(name,el){
   $('.tab').removeClass('act'); $('#tab-'+name).addClass('act');
@@ -4682,7 +4688,7 @@ function nav(name,el){
   else if(name==='users') loadUsers(1);
   else if(name==='ban-correlation') initBannedCorrelationTab();
   else if(name==='messages') loadMsgs(1);
-  else if(name==='replay-flow') loadReplayWindows(false);  // önbellekli
+  else if(name==='replay-flow') { invalidateReplayCaches(); loadReplayWindows(false); }
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
   else if(name==='settings') loadSysStatus();
@@ -5333,9 +5339,7 @@ function loadReplayWindows(force){
     return;
   }
   if(force){
-    _replayWindowsCache = null;
-    _replayMsgCache = {};
-    _replayFlagCache = {};
+    invalidateReplayCaches();
   }
   status('Sohbet pencereleri yükleniyor...');
   $.get('/api/replay/windows',{limit:120},function(d){
@@ -7077,6 +7081,8 @@ def create_app():
                 "kw_scores":   {k:v for k,v in kw.items() if k not in ("matched_terms","overall")},
                 "matched_terms": matched,
                 "threat_level": t_lvl,
+                "watch_url": r.get("watch_url",""),
+                "watch_seconds": int(r.get("watch_seconds") or 0),
             }
 
             if author not in flagged:
