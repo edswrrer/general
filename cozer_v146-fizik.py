@@ -5228,28 +5228,6 @@ function createReplaySession(){
   });
 }
 
-function recalcReplayWindow(win, cb){
-  if(!win || !win.video_id){ if(cb) cb(false); return; }
-  status('⏳ Bu pencere için eksik akış tamamlanıyor...');
-  $.ajax({
-    url:'/api/replay/recalculate',
-    method:'POST',
-    contentType:'application/json',
-    data:JSON.stringify(replaySessionParams({
-      limit:120,
-      auto_fill_missing:1,
-      video_id: win.video_id || '',
-      title: win.title || '',
-      video_date: win.window_date || ''
-    }))
-  }).done(function(d){
-    _replayWindowsCache = d.windows || _replayWindowsCache || [];
-    if(cb) cb(true);
-  }).fail(function(){
-    if(cb) cb(false);
-  });
-}
-
 // önbellek anahtarı üretici
 function _replayCacheKey(win){ return (win.video_id||'')+'|'+(win.window_date||''); }
 
@@ -7137,88 +7115,46 @@ def create_app():
         payload = request.get_json(silent=True) or request.form or {}
         replay_session_id = str(payload.get("session_id", "") or "").strip()
         replay_db_path = str(payload.get("db_path", "") or "").strip()
-        force_video_id = str(payload.get("video_id", "") or "").strip()
-        force_title = str(payload.get("title", "") or "").strip()
-        force_date = str(payload.get("video_date", "") or "").strip()
         sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
         limit = max(10, min(500, int(payload.get("limit", 200) or 200)))
         auto_fill_missing = str(payload.get("auto_fill_missing", "1")).lower() not in ("0", "false", "no")
 
         recalculated = []
         if auto_fill_missing:
-            if force_video_id:
-                missing = db_exec_on(
-                    target_db,
-                    "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date,"
-                    " COALESCE(sv.source_type,'') AS source_type"
-                    " FROM scraped_videos sv WHERE sv.video_id=? LIMIT 1",
-                    (force_video_id,), fetch="all"
-                ) or []
-                if not missing:
-                    missing = [{
-                        "video_id": force_video_id,
-                        "title": force_title,
-                        "video_date": force_date,
-                        "source_type": "stream",
-                    }]
-            else:
-                missing = db_exec_on(
-                    target_db,
-                    "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date,"
-                    " COALESCE(sv.source_type,'') AS source_type"
-                    " FROM scraped_videos sv"
-                    " LEFT JOIN ("
-                    "   SELECT video_id, COUNT(*) AS cnt FROM messages WHERE deleted=0 GROUP BY video_id"
-                    " ) m ON m.video_id = sv.video_id"
-                    " WHERE COALESCE(m.cnt,0)=0"
-                    " ORDER BY COALESCE(sv.video_date,''), sv.video_id"
-                    " LIMIT ?",
-                    (limit,), fetch="all"
-                ) or []
+            missing = db_exec_on(
+                target_db,
+                "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date"
+                " FROM scraped_videos sv"
+                " LEFT JOIN ("
+                "   SELECT video_id, COUNT(*) AS cnt FROM messages WHERE deleted=0 GROUP BY video_id"
+                " ) m ON m.video_id = sv.video_id"
+                " WHERE COALESCE(m.cnt,0)=0"
+                " ORDER BY COALESCE(sv.video_date,''), sv.video_id"
+                " LIMIT ?",
+                (limit,), fetch="all"
+            ) or []
 
             if missing:
                 old_db = CFG.get("db_path", "yt_guardian.db")
                 try:
                     CFG["db_path"] = target_db
                     init_db(target_db)
-                    total_missing = len(missing)
-                    for i, mv in enumerate(missing, 1):
+                    for mv in missing:
                         vid = (mv.get("video_id") or "").strip()
                         if not vid:
                             continue
-                        src_type = (mv.get("source_type") or "").strip().lower()
-                        src_url = "/streams" if src_type in ("stream", "replay_chat", "live") else "/videos"
-                        vid_payload = {
-                            "video_id": vid,
-                            "title": mv.get("title", ""),
-                            "video_date": mv.get("video_date", ""),
-                            "source_url": src_url,
-                        }
                         try:
-                            # 1) İlk iki videoda kullanılan akış ile tutarlı olmak için
-                            # önce standart scrape modülleri (yorum + varsa replay chat).
-                            _, _, saved = _scrape_one_video(vid_payload, i, total_missing, emit_fn=None)
-
-                            # 2) Hâlâ veri yoksa NLP replay takviyesini dene.
-                            nlp_messages = 0
-                            nlp_status = "skipped"
-                            if saved == 0:
-                                res = nlp_auto_replay_chat(
-                                    vid,
-                                    mv.get("title", ""),
-                                    mv.get("video_date", ""),
-                                    auto_analyze=True,
-                                    filter_spam=True
-                                ) or {}
-                                nlp_messages = int(res.get("messages", 0) or 0)
-                                nlp_status = res.get("status", "ok")
-
+                            res = nlp_auto_replay_chat(
+                                vid,
+                                mv.get("title", ""),
+                                mv.get("video_date", ""),
+                                auto_analyze=True,
+                                filter_spam=True
+                            ) or {}
                             recalculated.append({
                                 "video_id": vid,
-                                "status": "ok" if (saved > 0 or nlp_messages > 0) else nlp_status,
-                                "messages": int(saved + nlp_messages),
-                                "scrape_messages": int(saved),
-                                "nlp_messages": int(nlp_messages),
+                                "status": res.get("status", "ok"),
+                                "messages": int(res.get("messages", 0) or 0),
                             })
                         except Exception as e:
                             recalculated.append({"video_id": vid, "status": "error", "error": str(e)})
@@ -7227,30 +7163,11 @@ def create_app():
 
         rows = db_exec_on(
             target_db,
-            "WITH msg_agg AS ("
-            " SELECT COALESCE(video_id,'') AS video_id,"
-            "        COALESCE(video_date,'') AS video_date,"
-            "        COUNT(*) AS cnt, MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts,"
-            "        MAX(title) AS msg_title"
+            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+            " MAX(title) AS title, COUNT(*) AS message_count,"
+            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
             " FROM messages WHERE deleted=0"
-            " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
-            "), base AS ("
-            " SELECT COALESCE(sv.video_id,'') AS video_id,"
-            "        COALESCE(sv.video_date,'') AS video_date,"
-            "        COALESCE(NULLIF(sv.title,''), ma.msg_title, sv.video_id, '') AS title,"
-            "        COALESCE(ma.cnt,0) AS message_count,"
-            "        COALESCE(ma.min_ts,0) AS min_ts,"
-            "        COALESCE(ma.max_ts,0) AS max_ts"
-            " FROM scraped_videos sv"
-            " LEFT JOIN msg_agg ma ON ma.video_id = COALESCE(sv.video_id,'')"
-            " UNION ALL "
-            " SELECT ma.video_id, ma.video_date, COALESCE(ma.msg_title, ma.video_id, ''),"
-            "        ma.cnt, ma.min_ts, ma.max_ts"
-            " FROM msg_agg ma"
-            " WHERE NOT EXISTS (SELECT 1 FROM scraped_videos sv2 WHERE COALESCE(sv2.video_id,'') = ma.video_id)"
-            ")"
-            " SELECT video_date, video_id, title, message_count, min_ts, max_ts"
-            " FROM base"
+            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
             " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
             " LIMIT ?",
             (limit,), fetch="all"
@@ -7286,11 +7203,9 @@ def create_app():
         lim = max(10, min(300, int(request.args.get("limit", 120))))
         rows = db_exec_on(
             target_db,
-            "WITH msg_agg AS ("
-            " SELECT COALESCE(video_id,'') AS video_id,"
-            "        COALESCE(video_date,'') AS video_date,"
-            "        COUNT(*) AS cnt, MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts,"
-            "        MAX(title) AS msg_title"
+            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+            " MAX(title) AS title, COUNT(*) AS message_count,"
+            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
             " FROM messages WHERE deleted=0"
             " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
             "), base AS ("
