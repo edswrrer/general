@@ -4036,6 +4036,7 @@ select.inp{cursor:pointer}
 .btn{background:var(--acc);color:#000;border:none;padding:5px 12px;
   border-radius:6px;cursor:pointer;font-size:12px;font-weight:600}
 .btn:hover{opacity:.85}.btn.red{background:var(--red);color:#fff}
+.btn.blu{background:var(--blu);color:#fff}
 .btn.grn{background:var(--grn);color:#000}.btn.ghost{background:var(--bg3);
   border:1px solid var(--bd);color:var(--tx)}
 #content{flex:1;overflow-y:auto;padding:14px}
@@ -4262,11 +4263,15 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     </div>
     <div style="display:grid;grid-template-rows:auto 1fr;gap:12px">
       <div class="card" style="margin-bottom:0">
-        <h3>▶ Gerçek-Zamanlı Sohbet Simülasyonu</h3>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-          <button class="btn grn" onclick="playReplay()">▶ Oynat</button>
-          <button class="btn ghost" onclick="pauseReplay()">⏸ Duraklat</button>
-          <button class="btn ghost" onclick="resetReplay()">⏮ Sıfırla</button>
+      <h3>▶ Gerçek-Zamanlı Sohbet Simülasyonu</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn blu" onclick="recomputeReplayFlow()"
+                title="NLP'den gelen başlıklar + sohbet içerikleri + mevcut moderasyon modülleri ile tüm akışı yeniden hesaplar">
+          🔵 Akışı Tam Yeniden Hesapla
+        </button>
+        <button class="btn grn" onclick="playReplay()">▶ Oynat</button>
+        <button class="btn ghost" onclick="pauseReplay()">⏸ Duraklat</button>
+        <button class="btn ghost" onclick="resetReplay()">⏮ Sıfırla</button>
           <label style="font-size:11px;color:var(--tx2)">Hız</label>
           <select class="inp" id="replay-speed" style="width:85px" onchange="setReplaySpeed(this.value)">
             <option value="0.5">0.5x</option>
@@ -5161,6 +5166,28 @@ function loadReplayWindows(force){
   }).fail(()=>status('❌ Sohbet pencereleri yüklenemedi',3000));
 }
 
+function recomputeReplayFlow(){
+  status('⏳ Sohbet akışı modüllerle yeniden hesaplanıyor...');
+  pauseReplay();
+  $.get('/api/replay/recompute-all',{limit:120,threshold:0.30},function(d){
+    const windows = d.windows || [];
+    _replayWindowsCache = windows;
+    _replayMsgCache = {};
+    _replayFlagCache = d.flagged_map || {};
+    _renderReplayWindows(windows);
+    const flaggedUsers = Number(d.flagged_total_users || 0);
+    status(`✅ Akış yeniden hesaplandı · ${windows.length} pencere · ${flaggedUsers} fişli/banlı kullanıcı`, 4000);
+    if(replayState.active){
+      const activeKey = _replayCacheKey(replayState.active);
+      if(_replayFlagCache[activeKey]){
+        _renderFlaggedList(_replayFlagCache[activeKey], replayState.active);
+      }
+    }
+  }).fail(function(){
+    status('❌ Akış yeniden hesaplanamadı', 3500);
+  });
+}
+
 function _renderReplayWindows(windows){
   replayState.windows = windows;
   $('#replay-window-count').text(`${windows.length} pencere`);
@@ -5354,6 +5381,11 @@ function appendReplayMessage(m){
       highlightStyle = 'border-left:3px solid #8B0000;';
     }
   }
+  const flaggedWatchLink = (flagEntry && m.watch_url)
+    ? `<a href="${m.watch_url}" target="_blank" rel="noopener noreferrer"
+          style="margin-left:6px;font-size:10px;color:var(--acc);font-weight:600">
+          ⏱️ YouTube current time</a>`
+    : '';
 
   const msg = `<div class="msg ${['R','C','O'].includes(cls)?'hi':''}" style="${highlightStyle}">
       <div class="meta" style="flex-wrap:wrap;gap:3px">
@@ -5363,7 +5395,7 @@ function appendReplayMessage(m){
         <span style="font-size:10px">${m.source_type||''}</span>
         <span>${ts}</span>
       </div>
-      <div class="txt">${hl(m.message||'','')}</div>
+      <div class="txt">${hl(m.message||'','')}${flaggedWatchLink}</div>
       <div class="meta" style="margin-top:6px">
         ${m.watch_url?`<a href="${m.watch_url}" target="_blank" rel="noopener noreferrer" class="btn ghost" style="font-size:10px;padding:2px 6px;text-decoration:none">🎬 ${m.watch_seconds||0}.sn YouTube zamanı</a>`:'<span style="font-size:10px;color:var(--tx2)">Video zamanı yok</span>'}
       </div>
@@ -5955,6 +5987,144 @@ def create_app():
             m["watch_seconds"] = int(secs)
             m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
 
+        return out
+
+    def _fetch_replay_windows(limit: int = 120) -> List[dict]:
+        lim = max(10, min(300, int(limit or 120)))
+        rows = db_exec(
+            "SELECT COALESCE(m.video_date,'') AS video_date, COALESCE(m.video_id,'') AS video_id,"
+            " COALESCE(MAX(NULLIF(m.title,'')), MAX(NULLIF(sv.title,'')), '') AS title,"
+            " COUNT(*) AS message_count, MIN(m.timestamp) AS min_ts, MAX(m.timestamp) AS max_ts"
+            " FROM messages m"
+            " LEFT JOIN scraped_videos sv ON sv.video_id = m.video_id"
+            " WHERE m.deleted=0"
+            " GROUP BY COALESCE(m.video_date,''), COALESCE(m.video_id,'')"
+            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+            " LIMIT ?",
+            (lim,), fetch="all"
+        ) or []
+        out = []
+        for r in rows:
+            video_date = (r.get("video_date") or "").strip()
+            if (not video_date) and int(r.get("max_ts") or 0) > 0:
+                video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
+            out.append({
+                "window_date": video_date,
+                "video_id": (r.get("video_id") or "").strip(),
+                "title": (r.get("title") or "").strip(),
+                "message_count": int(r.get("message_count") or 0),
+                "min_timestamp": int(r.get("min_ts") or 0),
+                "max_timestamp": int(r.get("max_ts") or 0),
+            })
+        return out
+
+    def _collect_flagged_users(video_id: str = "", window_date: str = "",
+                               threshold: float = 0.35) -> List[dict]:
+        vid = (video_id or "").strip()
+        win_date = (window_date or "").strip()
+        th = max(0.0, min(1.0, float(threshold or 0.35)))
+
+        wh: List[str] = ["m.deleted=0"]
+        prms: List = []
+        if vid:
+            wh.append("m.video_id=?"); prms.append(vid)
+        if win_date:
+            wh.append("COALESCE(m.video_date,'')=?"); prms.append(win_date)
+        where_sql = " AND ".join(wh)
+
+        rows = db_exec(
+            "SELECT m.id, m.author, m.message, m.timestamp,"
+            " m.video_id, m.video_date, m.source_type,"
+            " up.threat_level, up.threat_score, up.hate_score,"
+            " up.antisemitism_score, up.bot_prob, up.game_strategy,"
+            " up.ollama_action, up.hmm_state, up.is_banned"
+            " FROM messages m"
+            " LEFT JOIN user_profiles up ON m.author=up.author"
+            f" WHERE {where_sql}"
+            " ORDER BY m.timestamp ASC",
+            tuple(prms), fetch="all"
+        ) or []
+
+        flagged: Dict[str, dict] = {}
+        for r in rows:
+            author   = r.get("author","")
+            text     = r.get("message","") or ""
+            ts       = r.get("timestamp",0) or 0
+            t_lvl    = r.get("threat_level","GREEN") or "GREEN"
+            t_score  = float(r.get("threat_score",0) or 0)
+            h_score  = float(r.get("hate_score",0) or 0)
+            anti_sc  = float(r.get("antisemitism_score",0) or 0)
+            banned   = int(r.get("is_banned") or 0) == 1 or \
+                       (r.get("game_strategy","") or "") in ("BAN","BANNED") or \
+                       (r.get("ollama_action","") or "") in ("BAN","BANNED")
+
+            kw = keyword_hate_score(text)
+            kw_overall = kw.get("overall",0.0)
+            matched    = kw.get("matched_terms",[])
+            is_flagged = banned or (kw_overall >= th) or \
+                         (h_score >= th) or (anti_sc >= th) or \
+                         t_lvl in ("RED","CRIMSON","ORANGE")
+            if not is_flagged:
+                continue
+
+            reasons: List[str] = []
+            if banned:                          reasons.append("BANLANDI")
+            if t_lvl in ("CRIMSON","RED"):      reasons.append(f"TEHDİT:{t_lvl}")
+            if kw.get("antisemitism",0) >= th:
+                reasons.append("ANTİSEMİTİZM")
+            if kw.get("nazism",0) >= th:        reasons.append("NAZİZM")
+            if kw.get("white_supremacy",0) >= th:
+                reasons.append("BEYAZ_ÜSTÜNLÜK")
+            if kw.get("christian_radicalism",0) >= th:
+                reasons.append("HRİSTİYAN_RADİKAL")
+            if kw.get("conspiracy_troll",0) >= th:
+                reasons.append("KOMPLO_TROL")
+            if kw.get("profanity_tr",0) >= 0.50:       reasons.append("KÜFÜR/HAKARET")
+            if h_score >= th and not reasons:    reasons.append("NEFRET_SÖYLEMİ")
+
+            trigger_msg = {
+                "msg_id":      r.get("id",""),
+                "message":     text[:300],
+                "timestamp":   ts,
+                "video_id":    (r.get("video_id") or "").strip(),
+                "video_date":  (r.get("video_date") or "").strip(),
+                "source_type": (r.get("source_type") or "").strip(),
+                "reasons":     reasons,
+                "kw_scores":   {k:v for k,v in kw.items() if k not in ("matched_terms","overall")},
+                "matched_terms": matched,
+                "threat_level": t_lvl,
+            }
+
+            if author not in flagged:
+                flagged[author] = {
+                    "author":             author,
+                    "banned":             banned,
+                    "threat_level":       t_lvl,
+                    "threat_score":       round(t_score,3),
+                    "hate_score":         round(h_score,3),
+                    "antisemitism_score": round(anti_sc,3),
+                    "reasons":            set(),
+                    "trigger_messages":   [],
+                    "hmm_state":          r.get("hmm_state","NORMAL") or "NORMAL",
+                }
+            flagged[author]["reasons"].update(reasons)
+            if len(flagged[author]["trigger_messages"]) < 5:
+                flagged[author]["trigger_messages"].append(trigger_msg)
+
+        out = []
+        for entry in flagged.values():
+            entry["reasons"] = sorted(entry["reasons"])
+            try:
+                entry["trigger_messages"] = _attach_watch_links(entry["trigger_messages"])
+            except Exception:
+                pass
+            out.append(entry)
+        out.sort(key=lambda x: (
+            x["banned"],
+            x["threat_score"],
+            x["hate_score"],
+            x["antisemitism_score"]
+        ), reverse=True)
         return out
 
     # ── Stats ─────────────────────────────────────────────────────────────────
@@ -6764,153 +6934,38 @@ def create_app():
 
     @app.route("/api/replay/flagged-users")
     def api_replay_flagged_users():
-        """
-        Belirli bir video için:
-        - Banlanan kullanıcılar
-        - Yüksek nefret skoru (sözlük + BART) olan mesajları olan kullanıcılar
-        Her kullanıcıya fişleme gerekçesi olan mesajlar da eklenir.
-        """
-        vid      = (request.args.get("video_id","") or "").strip()
+        vid = (request.args.get("video_id","") or "").strip()
         win_date = (request.args.get("window_date","") or "").strip()
         threshold = float(request.args.get("threshold","0.35"))
-
-        wh: List[str] = ["m.deleted=0"]
-        prms: List    = []
-        if vid:
-            wh.append("m.video_id=?"); prms.append(vid)
-        if win_date:
-            wh.append("COALESCE(m.video_date,'')=?"); prms.append(win_date)
-        where_sql = " AND ".join(wh)
-
-        rows = db_exec(
-            "SELECT m.id, m.author, m.message, m.timestamp,"
-            " m.video_id, m.video_date, m.source_type,"
-            " up.threat_level, up.threat_score, up.hate_score,"
-            " up.antisemitism_score, up.bot_prob, up.game_strategy,"
-            " up.ollama_action, up.hmm_state, up.is_banned"
-            " FROM messages m"
-            " LEFT JOIN user_profiles up ON m.author=up.author"
-            f" WHERE {where_sql}"
-            " ORDER BY m.timestamp ASC",
-            tuple(prms), fetch="all"
-        ) or []
-
-        # Her mesaj için sözlük tabanlı hızlı kontrol
-        flagged: Dict[str, dict] = {}
-        for r in rows:
-            author   = r.get("author","")
-            text     = r.get("message","") or ""
-            ts       = r.get("timestamp",0) or 0
-            t_lvl    = r.get("threat_level","GREEN") or "GREEN"
-            t_score  = float(r.get("threat_score",0) or 0)
-            h_score  = float(r.get("hate_score",0) or 0)
-            anti_sc  = float(r.get("antisemitism_score",0) or 0)
-            banned   = int(r.get("is_banned") or 0) == 1 or \
-                       (r.get("game_strategy","") or "") in ("BAN","BANNED") or \
-                       (r.get("ollama_action","") or "") in ("BAN","BANNED")
-
-            kw = keyword_hate_score(text)
-            kw_overall = kw.get("overall",0.0)
-            matched    = kw.get("matched_terms",[])
-
-            # Fişleme kriterleri
-            is_flagged  = banned or (kw_overall >= threshold) or \
-                          (h_score >= threshold) or (anti_sc >= threshold) or \
-                          t_lvl in ("RED","CRIMSON","ORANGE")
-            if not is_flagged:
-                continue
-
-            # Fişleme kategorileri
-            reasons: List[str] = []
-            if banned:                          reasons.append("BANLANDI")
-            if t_lvl in ("CRIMSON","RED"):      reasons.append(f"TEHDİT:{t_lvl}")
-            if kw.get("antisemitism",0) >= threshold:
-                reasons.append("ANTİSEMİTİZM")
-            if kw.get("nazism",0) >= threshold:        reasons.append("NAZİZM")
-            if kw.get("white_supremacy",0) >= threshold:
-                reasons.append("BEYAZ_ÜSTÜNLÜK")
-            if kw.get("christian_radicalism",0) >= threshold:
-                reasons.append("HRİSTİYAN_RADİKAL")
-            if kw.get("conspiracy_troll",0) >= threshold:
-                reasons.append("KOMPLO_TROL")
-            if kw.get("profanity_tr",0) >= 0.50:       reasons.append("KÜFÜR/HAKARET")
-            if h_score >= threshold and not reasons:    reasons.append("NEFRET_SÖYLEMİ")
-
-            trigger_msg = {
-                "msg_id":      r.get("id",""),
-                "message":     text[:300],
-                "timestamp":   ts,
-                "video_id":    (r.get("video_id") or "").strip(),
-                "video_date":  (r.get("video_date") or "").strip(),
-                "source_type": (r.get("source_type") or "").strip(),
-                "reasons":     reasons,
-                "kw_scores":   {k:v for k,v in kw.items() if k not in ("matched_terms","overall")},
-                "matched_terms": matched,
-                "threat_level": t_lvl,
-            }
-
-            if author not in flagged:
-                flagged[author] = {
-                    "author":             author,
-                    "banned":             banned,
-                    "threat_level":       t_lvl,
-                    "threat_score":       round(t_score,3),
-                    "hate_score":         round(h_score,3),
-                    "antisemitism_score": round(anti_sc,3),
-                    "reasons":            set(),
-                    "trigger_messages":   [],
-                    "hmm_state":          r.get("hmm_state","NORMAL") or "NORMAL",
-                }
-            flagged[author]["reasons"].update(reasons)
-            if len(flagged[author]["trigger_messages"]) < 5:
-                flagged[author]["trigger_messages"].append(trigger_msg)
-
-        # Serialize & sort
-        out = []
-        for entry in flagged.values():
-            entry["reasons"] = sorted(entry["reasons"])
-            # ── YouTube zaman bağlantıları: _attach_watch_links modülüyle hesapla ──
-            try:
-                entry["trigger_messages"] = _attach_watch_links(entry["trigger_messages"])
-            except Exception:
-                pass
-            out.append(entry)
-        out.sort(key=lambda x: (
-            x["banned"],
-            x["threat_score"],
-            x["hate_score"],
-            x["antisemitism_score"]
-        ), reverse=True)
-
+        out = _collect_flagged_users(video_id=vid, window_date=win_date, threshold=threshold)
         return jsonify({"flagged_users": out, "total": len(out)})
 
     @app.route("/api/replay/windows")
     def api_replay_windows():
-        lim = max(10, min(300, int(request.args.get("limit", 120))))
-        rows = db_exec(
-            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
-            " MAX(title) AS title, COUNT(*) AS message_count,"
-            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
-            " FROM messages WHERE deleted=0"
-            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
-            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
-            " LIMIT ?",
-            (lim,), fetch="all"
-        ) or []
-        out = []
-        for r in rows:
-            video_date = (r.get("video_date") or "").strip()
-            if (not video_date) and int(r.get("max_ts") or 0) > 0:
-                video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
-            out.append({
-                "window_date": video_date,
-                "video_id": (r.get("video_id") or "").strip(),
-                "title": (r.get("title") or "").strip(),
-                "message_count": int(r.get("message_count") or 0),
-                "min_timestamp": int(r.get("min_ts") or 0),
-                "max_timestamp": int(r.get("max_ts") or 0),
-            })
-        return jsonify({"windows": out})
+        lim = int(request.args.get("limit", 120))
+        return jsonify({"windows": _fetch_replay_windows(lim)})
+
+    @app.route("/api/replay/recompute-all")
+    def api_replay_recompute_all():
+        lim = int(request.args.get("limit", 120))
+        threshold = float(request.args.get("threshold", "0.30"))
+        windows = _fetch_replay_windows(lim)
+        flagged_map: Dict[str, List[dict]] = {}
+        flagged_total_users = 0
+        for win in windows:
+            ckey = f"{(win.get('video_id') or '').strip()}|{(win.get('window_date') or '').strip()}"
+            users = _collect_flagged_users(
+                video_id=(win.get("video_id") or "").strip(),
+                window_date=(win.get("window_date") or "").strip(),
+                threshold=threshold
+            )
+            flagged_map[ckey] = users
+            flagged_total_users += len(users)
+        return jsonify({
+            "windows": windows,
+            "flagged_map": flagged_map,
+            "flagged_total_users": flagged_total_users
+        })
 
     @app.route("/api/replay/window/messages")
     def api_replay_window_messages():
