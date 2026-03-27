@@ -201,6 +201,12 @@ THREAT_LABELS = [
     "neutral friendly message","spam content",
 ]
 BOT_LABELS    = ["human-like conversation","spam or bot-like message"]
+IDEOLOGY_LABELS = [
+    "conservative jewish worldview",
+    "anti-israel viewpoint",
+    "anti-zionism viewpoint",
+    "neutral viewpoint",
+]
 MOD_ACTIONS   = ["BAN","WARN","IGNORE","MONITOR"]
 ACTOR_ACTIONS = ["BEHAVE","TROLL","IMPERSONATE","FLOOD"]
 ACTION_NAMES  = {0:"HUMAN",1:"BOT",2:"HATER",3:"STALKER",4:"IMPERSONATOR",5:"COORDINATED"}
@@ -2559,6 +2565,104 @@ def hate_scores(text: str) -> Dict[str,float]:
         "overall":      round(overall,4),
     }
 
+def ideology_tendency_scores(text: str) -> Dict[str,float]:
+    """
+    Metnin politik/düşünsel eğilim sinyalini BART + keyword tabanlı çıkarır.
+    """
+    txt = (text or "").strip()
+    if not txt:
+        return {
+            "conservative_judaism": 0.0,
+            "anti_israel": 0.0,
+            "anti_zionism": 0.0,
+            "neutral": 1.0,
+        }
+    b = bart_classify(txt, IDEOLOGY_LABELS)
+    lowered = txt.lower()
+    kw_map = {
+        "conservative_judaism": [
+            "muhafazakar musevi", "conservative judaism", "orthodox jewish",
+            "torah", "halakha", "rabbi"
+        ],
+        "anti_israel": [
+            "israil karşıtı", "anti israel", "boycott israel",
+            "free palestine", "against israel"
+        ],
+        "anti_zionism": [
+            "siyonizm karşıtı", "anti zionism", "anti-zionism",
+            "siyonist karşıtı", "anti zionist"
+        ],
+    }
+    kw_boost = {}
+    for k, kws in kw_map.items():
+        hits = sum(1 for kw in kws if kw in lowered)
+        kw_boost[k] = min(1.0, hits * 0.18)
+
+    c_j = 0.72 * float(b.get("conservative jewish worldview", 0.0)) + 0.28 * kw_boost["conservative_judaism"]
+    a_i = 0.72 * float(b.get("anti-israel viewpoint", 0.0)) + 0.28 * kw_boost["anti_israel"]
+    a_z = 0.72 * float(b.get("anti-zionism viewpoint", 0.0)) + 0.28 * kw_boost["anti_zionism"]
+    ntr = float(b.get("neutral viewpoint", 0.0))
+    return {
+        "conservative_judaism": round(max(0.0, min(1.0, c_j)), 4),
+        "anti_israel": round(max(0.0, min(1.0, a_i)), 4),
+        "anti_zionism": round(max(0.0, min(1.0, a_z)), 4),
+        "neutral": round(max(0.0, min(1.0, ntr)), 4),
+    }
+
+def _q_state_similarity(a: Any, b: Any) -> float:
+    sa = str(a or "")
+    sb = str(b or "")
+    if not sa or not sb:
+        return 0.0
+    n = max(len(sa), len(sb))
+    if n <= 0:
+        return 0.0
+    sa = sa.ljust(n, "0")
+    sb = sb.ljust(n, "0")
+    matches = sum(1 for i in range(n) if sa[i] == sb[i])
+    return round(matches / n, 4)
+
+def ideology_correlation_score(
+    banned_msg: str,
+    cand_msg: str,
+    banned_profile: Optional[Dict[str, Any]] = None,
+    cand_profile: Optional[Dict[str, Any]] = None,
+    sync_score: float = 0.0,
+) -> Dict[str, Any]:
+    b_sc = ideology_tendency_scores(banned_msg)
+    c_sc = ideology_tendency_scores(cand_msg)
+    vb = np.array([b_sc["conservative_judaism"], b_sc["anti_israel"], b_sc["anti_zionism"]], dtype=float)
+    vc = np.array([c_sc["conservative_judaism"], c_sc["anti_israel"], c_sc["anti_zionism"]], dtype=float)
+    if np.linalg.norm(vb) < 1e-9 or np.linalg.norm(vc) < 1e-9:
+        bart_sim = 0.0
+    else:
+        bart_sim = float(np.dot(vb, vc) / ((np.linalg.norm(vb) * np.linalg.norm(vc)) + 1e-12))
+        bart_sim = max(0.0, min(1.0, bart_sim))
+
+    q_sim = _q_state_similarity(
+        (banned_profile or {}).get("q_state", ""),
+        (cand_profile or {}).get("q_state", "")
+    )
+    hate_align = 0.0
+    try:
+        hate_align = 1.0 - min(
+            1.0,
+            abs(float((banned_profile or {}).get("antisemitism_score", 0.0)) -
+                float((cand_profile or {}).get("antisemitism_score", 0.0)))
+        )
+    except Exception:
+        hate_align = 0.0
+
+    total = 0.55 * bart_sim + 0.20 * q_sim + 0.15 * hate_align + 0.10 * max(0.0, min(1.0, sync_score))
+    return {
+        "correlation": round(max(0.0, min(1.0, total)), 4),
+        "bart_similarity": round(bart_sim, 4),
+        "qlearning_similarity": round(q_sim, 4),
+        "hate_alignment": round(hate_align, 4),
+        "banned_tendency": b_sc,
+        "candidate_tendency": c_sc,
+    }
+
 def persona_masking(candidate: str, cand_msgs: List[str],
                      known_users: Dict[str,List[str]]) -> Tuple[float,str]:
     cand_norm = norm_username(candidate)
@@ -3633,6 +3737,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <button class="btn ghost" onclick="doClustering()">🕸️ Kümeleme</button>
     <button class="btn ghost" onclick="inspectNewAccounts()">🆕 Yeni Hesaplar</button>
     <button class="btn ghost" id="pdf-export-btn" onclick="exportBannedPDF()" style="display:none;background:linear-gradient(135deg,#8B0000,#cc2222);color:#fff;border:none">📄 PDF Analiz</button>
+    <button class="btn ghost" id="ban-corr-btn" onclick="showBannedCorrelations()" style="display:none;background:linear-gradient(135deg,#5d3fd3,#7f5af0);color:#fff;border:none">🧠 Banlanan-Korelasyon</button>
     <span id="ucnt" style="color:var(--tx2);font-size:11px;margin-left:auto"></span>
   </div>
   <table class="tbl">
@@ -3930,9 +4035,11 @@ function setUsersView(view){
     $('#tf').prop('disabled', true);
     $('#tf').val('');
     $('#pdf-export-btn').show();
+    $('#ban-corr-btn').show();
   } else {
     $('#tf').prop('disabled', false);
     $('#pdf-export-btn').hide();
+    $('#ban-corr-btn').hide();
   }
   loadUsers(1);
 }
@@ -3959,6 +4066,71 @@ function exportBannedPDF(){
     })
     .catch(e => status('❌ PDF Error: ' + e.message, 5000))
     .finally(() => { btn.disabled=false; btn.innerHTML='📄 PDF Analiz'; });
+}
+
+function showBannedCorrelations(){
+  const btn = document.getElementById('ban-corr-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Hazırlanıyor...'; }
+  status('Banlanan-korelasyon analizi hesaplanıyor...');
+  fetch('/api/banned/correlations')
+    .then(resp => resp.json().then(d => ({ok:resp.ok,data:d})))
+    .then(({ok,data}) => {
+      if(!ok) throw new Error(data.error || 'Korelasyon hatası');
+      const rows = data.rows || [];
+      if(!rows.length){
+        $('#modal-title').text('🧠 Banlanan-Korelasyon');
+        $('#modal-body').html('<p style="color:var(--tx2)">Yüksek korelasyonlu yazar bulunamadı.</p>');
+        $('#modal').addClass('open');
+        status('Uygun eşleşme bulunamadı', 3500);
+        return;
+      }
+      const h = rows.map(r=>{
+        const ts = r.banned_timestamp ? new Date(r.banned_timestamp*1000).toLocaleString() : '-';
+        const cts = r.candidate_timestamp ? new Date(r.candidate_timestamp*1000).toLocaleString() : '-';
+        const corrPct = ((r.correlation||0)*100).toFixed(1);
+        const bartPct = ((r.bart_similarity||0)*100).toFixed(1);
+        const qPct = ((r.qlearning_similarity||0)*100).toFixed(1);
+        const syncTxt = r.sync_type==='adjacent' ? 'Önce/Sonra Sohbet' : 'Aynı Sohbet';
+        const vidLink = r.video_id
+          ? `<a href="https://www.youtube.com/watch?v=${r.video_id}" target="_blank" rel="noopener noreferrer">${r.video_title||r.video_id}</a>`
+          : (r.video_title||'-');
+        return `<tr>
+          <td>@${r.banned_author||'-'}</td>
+          <td>${vidLink}</td>
+          <td>${ts}</td>
+          <td>@${r.candidate_author||'-'}</td>
+          <td>${cts}</td>
+          <td><b style="color:var(--acc)">${corrPct}%</b></td>
+          <td>${bartPct}%</td>
+          <td>${qPct}%</td>
+          <td>${syncTxt}</td>
+        </tr>`;
+      }).join('');
+      $('#modal-title').text('🧠 Banlanan-Korelasyon');
+      $('#modal-body').html(
+        `<div style="color:var(--tx2);font-size:11px;margin-bottom:8px">
+          NLP(BART) + Q-Learning + eş-zamanlı sohbet sinyali ile yüksek korelasyonlu yazarlar listelenmiştir.
+        </div>
+        <div style="max-height:62vh;overflow:auto">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Banlanan</th><th>Video</th><th>Banlanan Zaman</th>
+                <th>Korelasyonlu Yazar</th><th>Yazar Zaman</th>
+                <th>Korelasyon</th><th>BART Benzerliği</th><th>Q-Learning</th><th>Sohbet Konumu</th>
+              </tr>
+            </thead>
+            <tbody>${h}</tbody>
+          </table>
+        </div>`
+      );
+      $('#modal').addClass('open');
+      status(`✅ ${rows.length} korelasyon satırı listelendi`, 4000);
+    })
+    .catch(e => status('❌ Korelasyon hatası: ' + e.message, 5000))
+    .finally(() => {
+      if(btn){ btn.disabled = false; btn.textContent = '🧠 Banlanan-Korelasyon'; }
+    });
 }
 
 function analyzeUser(a){
@@ -4716,6 +4888,145 @@ def create_app():
     def api_unban(author):
         db_exec("UPDATE user_profiles SET game_strategy='BEHAVE' WHERE author=?",(author,))
         return jsonify({"success":True,"message":f"@{author} BAN kaldırıldı"})
+
+    @app.route("/api/banned/correlations")
+    def api_banned_correlations():
+        """
+        Banlanan kullanıcı mesajları ile aynı/komşu sohbet akışında görülen ve
+        benzer ideolojik eğilim taşıyan yazarları listeler.
+        """
+        try:
+            min_corr = float(request.args.get("min_corr", 0.62))
+            max_rows = min(int(request.args.get("limit", 300)), 1000)
+
+            banned_users = db_exec(
+                "SELECT author, q_state, antisemitism_score FROM user_profiles WHERE game_strategy='BAN'",
+                fetch="all"
+            ) or []
+            if not banned_users:
+                return jsonify({"rows": [], "total": 0})
+
+            banned_set = {r["author"] for r in banned_users if r.get("author")}
+            prof_rows = db_exec(
+                "SELECT author, q_state, antisemitism_score FROM user_profiles",
+                fetch="all"
+            ) or []
+            profiles = {
+                r["author"]: {
+                    "q_state": r.get("q_state", ""),
+                    "antisemitism_score": float(r.get("antisemitism_score", 0.0) or 0.0)
+                }
+                for r in prof_rows if r.get("author")
+            }
+
+            banned_msgs = db_exec(
+                """
+                SELECT id, author, video_id, title, timestamp, message
+                FROM messages
+                WHERE deleted=0 AND author IN (
+                    SELECT author FROM user_profiles WHERE game_strategy='BAN'
+                )
+                ORDER BY timestamp DESC
+                LIMIT 2500
+                """,
+                fetch="all"
+            ) or []
+
+            out_rows = []
+            seen = set()
+
+            for bm in banned_msgs:
+                b_author = bm.get("author")
+                vid = bm.get("video_id") or ""
+                ts = int(bm.get("timestamp") or 0)
+                if not b_author or not vid or ts <= 0:
+                    continue
+
+                neighbor_rows = db_exec(
+                    """
+                    SELECT id, author, timestamp, message, video_id, title
+                    FROM messages
+                    WHERE deleted=0 AND video_id=? AND author<>?
+                      AND timestamp BETWEEN ? AND ?
+                    ORDER BY ABS(timestamp - ?) ASC
+                    LIMIT 25
+                    """,
+                    (vid, b_author, ts - 120, ts + 120, ts),
+                    fetch="all"
+                ) or []
+
+                prev_row = db_exec(
+                    """
+                    SELECT id, author, timestamp, message, video_id, title
+                    FROM messages
+                    WHERE deleted=0 AND video_id=? AND author<>? AND timestamp < ?
+                    ORDER BY timestamp DESC LIMIT 1
+                    """,
+                    (vid, b_author, ts),
+                    fetch="one"
+                )
+                next_row = db_exec(
+                    """
+                    SELECT id, author, timestamp, message, video_id, title
+                    FROM messages
+                    WHERE deleted=0 AND video_id=? AND author<>? AND timestamp > ?
+                    ORDER BY timestamp ASC LIMIT 1
+                    """,
+                    (vid, b_author, ts),
+                    fetch="one"
+                )
+                if prev_row:
+                    neighbor_rows.append(prev_row)
+                if next_row:
+                    neighbor_rows.append(next_row)
+
+                for cm in neighbor_rows:
+                    c_author = cm.get("author")
+                    if not c_author or c_author == b_author or c_author in banned_set:
+                        continue
+                    c_ts = int(cm.get("timestamp") or 0)
+                    sync_type = "same_chat" if abs(c_ts - ts) <= 120 else "adjacent"
+                    sync_score = 1.0 if sync_type == "same_chat" else 0.65
+
+                    corr = ideology_correlation_score(
+                        bm.get("message", ""),
+                        cm.get("message", ""),
+                        profiles.get(b_author, {}),
+                        profiles.get(c_author, {}),
+                        sync_score=sync_score
+                    )
+                    if corr["correlation"] < min_corr:
+                        continue
+
+                    key = (bm.get("id"), cm.get("id"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+
+                    out_rows.append({
+                        "banned_author": b_author,
+                        "banned_timestamp": ts,
+                        "banned_message_id": bm.get("id"),
+                        "video_id": vid,
+                        "video_title": bm.get("title") or cm.get("title") or "",
+                        "candidate_author": c_author,
+                        "candidate_timestamp": c_ts,
+                        "candidate_message_id": cm.get("id"),
+                        "sync_type": sync_type,
+                        "correlation": corr["correlation"],
+                        "bart_similarity": corr["bart_similarity"],
+                        "qlearning_similarity": corr["qlearning_similarity"],
+                        "hate_alignment": corr["hate_alignment"],
+                        "banned_tendency": corr["banned_tendency"],
+                        "candidate_tendency": corr["candidate_tendency"],
+                    })
+
+            out_rows.sort(key=lambda x: x.get("correlation", 0.0), reverse=True)
+            out_rows = out_rows[:max_rows]
+            return jsonify({"rows": out_rows, "total": len(out_rows), "min_corr": min_corr})
+        except Exception as e:
+            log.exception("Banned correlation error: %s", e)
+            return jsonify({"error": str(e)}), 500
 
     # ── Banned Users PDF Report ───────────────────────────────────────────────
     @app.route("/api/banned/pdf")
