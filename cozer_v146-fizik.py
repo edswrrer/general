@@ -7092,8 +7092,7 @@ def create_app():
         if auto_fill_missing:
             missing = db_exec_on(
                 target_db,
-                "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date,"
-                " COALESCE(sv.source_type,'') AS source_type"
+                "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date"
                 " FROM scraped_videos sv"
                 " LEFT JOIN ("
                 "   SELECT video_id, COUNT(*) AS cnt FROM messages WHERE deleted=0 GROUP BY video_id"
@@ -7109,44 +7108,22 @@ def create_app():
                 try:
                     CFG["db_path"] = target_db
                     init_db(target_db)
-                    total_missing = len(missing)
-                    for i, mv in enumerate(missing, 1):
+                    for mv in missing:
                         vid = (mv.get("video_id") or "").strip()
                         if not vid:
                             continue
-                        src_type = (mv.get("source_type") or "").strip().lower()
-                        src_url = "/streams" if src_type in ("stream", "replay_chat", "live") else "/videos"
-                        vid_payload = {
-                            "video_id": vid,
-                            "title": mv.get("title", ""),
-                            "video_date": mv.get("video_date", ""),
-                            "source_url": src_url,
-                        }
                         try:
-                            # 1) İlk iki videoda kullanılan akış ile tutarlı olmak için
-                            # önce standart scrape modülleri (yorum + varsa replay chat).
-                            _, _, saved = _scrape_one_video(vid_payload, i, total_missing, emit_fn=None)
-
-                            # 2) Hâlâ veri yoksa NLP replay takviyesini dene.
-                            nlp_messages = 0
-                            nlp_status = "skipped"
-                            if saved == 0:
-                                res = nlp_auto_replay_chat(
-                                    vid,
-                                    mv.get("title", ""),
-                                    mv.get("video_date", ""),
-                                    auto_analyze=True,
-                                    filter_spam=True
-                                ) or {}
-                                nlp_messages = int(res.get("messages", 0) or 0)
-                                nlp_status = res.get("status", "ok")
-
+                            res = nlp_auto_replay_chat(
+                                vid,
+                                mv.get("title", ""),
+                                mv.get("video_date", ""),
+                                auto_analyze=True,
+                                filter_spam=True
+                            ) or {}
                             recalculated.append({
                                 "video_id": vid,
-                                "status": "ok" if (saved > 0 or nlp_messages > 0) else nlp_status,
-                                "messages": int(saved + nlp_messages),
-                                "scrape_messages": int(saved),
-                                "nlp_messages": int(nlp_messages),
+                                "status": res.get("status", "ok"),
+                                "messages": int(res.get("messages", 0) or 0),
                             })
                         except Exception as e:
                             recalculated.append({"video_id": vid, "status": "error", "error": str(e)})
