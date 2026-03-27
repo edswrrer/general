@@ -122,6 +122,16 @@ def init_db(path: str = DB_PATH) -> sqlite3.Connection:
         UNIQUE(subject, relation, object)
     )""")
 
+    c.execute("""CREATE TABLE IF NOT EXISTS user_messages (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        username       TEXT NOT NULL,
+        message_text   TEXT NOT NULL,
+        video_id       TEXT DEFAULT '',
+        video_title    TEXT DEFAULT '',
+        video_second   INTEGER DEFAULT 0,
+        created_at     TEXT NOT NULL
+    )""")
+
     conn.commit()
     return conn
 
@@ -960,6 +970,63 @@ class Pipeline:
         """).fetchall()
         return [{"cluster_id":r[0],"count":r[1],"emotion":r[2],
                  "examples": (r[3] or "")[:200]} for r in rows]
+
+    def save_user_message(self, username: str, message_text: str,
+                          video_id: str = "", video_title: str = "",
+                          video_second: int = 0) -> None:
+        u = (username or "").strip()
+        m = (message_text or "").strip()
+        if not u or not m:
+            return
+        try:
+            sec = max(0, int(video_second or 0))
+        except Exception:
+            sec = 0
+        c = self.db.cursor()
+        c.execute("""INSERT INTO user_messages
+            (username, message_text, video_id, video_title, video_second, created_at)
+            VALUES (?,?,?,?,?,?)""",
+            (u, m, (video_id or "").strip(), (video_title or "").strip(),
+             sec, datetime.now().isoformat()))
+        self.db.commit()
+
+    def get_message_users(self) -> List[str]:
+        c = self.db.cursor()
+        rows = c.execute("""
+            SELECT username FROM user_messages
+            GROUP BY username
+            ORDER BY MAX(created_at) DESC
+        """).fetchall()
+        return [r[0] for r in rows if r[0]]
+
+    def get_user_messages(self, username: str) -> List[Dict]:
+        u = (username or "").strip()
+        if not u:
+            return []
+        c = self.db.cursor()
+        rows = c.execute("""
+            SELECT id, username, message_text, video_id, video_title,
+                   video_second, created_at
+            FROM user_messages
+            WHERE username=?
+            ORDER BY datetime(created_at) DESC, id DESC
+        """, (u,)).fetchall()
+        out = []
+        for r in rows:
+            sec = int(r[5] or 0)
+            vid = r[3] or ""
+            ct_link = f"https://www.youtube.com/watch?v={vid}&t={sec}s" if vid else ""
+            out.append({
+                "id": r[0],
+                "username": r[1],
+                "message_text": r[2],
+                "video_id": vid,
+                "video_title": r[4] or "",
+                "video_second": sec,
+                "youtube_link": ct_link,
+                "created_at": r[6],
+            })
+        return out
 
     # ════════════════════════════════════════════════════════════
     # PROCESS EXISTING TRANSCRIPTS
@@ -1807,6 +1874,25 @@ body::after{
         </div>
       </div>
 
+      <div style="display:grid;grid-template-columns:180px 180px 1fr 120px;gap:8px">
+        <input v-model="chatUserName"
+               style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+                      color:var(--text);padding:6px 8px;font-family:inherit"
+               placeholder="Kullanıcı adı"/>
+        <input v-model="chatVideoId"
+               style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+                      color:var(--text);padding:6px 8px;font-family:inherit"
+               placeholder="Video ID"/>
+        <input v-model="chatVideoTitle"
+               style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+                      color:var(--text);padding:6px 8px;font-family:inherit"
+               placeholder="Video başlığı"/>
+        <input v-model.number="chatVideoSecond" type="number" min="0"
+               style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+                      color:var(--text);padding:6px 8px;font-family:inherit"
+               placeholder="Saniye"/>
+      </div>
+
       <div class="chat-input-row">
         <textarea class="chat-input"
                   v-model="chatInput"
@@ -1818,6 +1904,62 @@ body::after{
                 @click="sendChat">
           {{isQuerying?'…':'Send'}}
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MESSAGES TAB ═══════════════════════════════════════ -->
+  <div v-if="activeTab==='messages'" class="panel fade-in">
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="card-title">Mesajlar</div>
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:220px">
+          <label style="font-size:10px;color:var(--text2)">Kullanıcı</label>
+          <select v-model="selectedMessageUser"
+                  style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+                         color:var(--text);padding:7px;font-family:inherit">
+            <option value="">Kullanıcı seç</option>
+            <option v-for="u in messageUsers" :key="u" :value="u">{{u}}</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost" @click="loadMessageUsers">↻ Kullanıcıları Yenile</button>
+        <button class="btn btn-ghost" :disabled="!selectedMessageUser" @click="loadSelectedUserMessages">↻ Mesajları Yenile</button>
+        <button class="btn btn-primary" :disabled="!selectedMessageUser" @click="exportMessagesPdf">🧾 Mesajlar-Pdf</button>
+      </div>
+
+      <div class="table-wrap" style="max-height:58vh;overflow-y:auto">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Mesaj</th>
+              <th>Video Başlığı</th>
+              <th>Tarih-Saat</th>
+              <th>Zaman</th>
+              <th>YouTube Current Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in selectedUserMessages" :key="m.id">
+              <td style="max-width:300px">{{m.message_text}}</td>
+              <td style="max-width:220px">{{m.video_title || '—'}}</td>
+              <td style="color:var(--text3)">{{formatLocalDate(m.created_at)}}</td>
+              <td style="color:var(--amber)">{{formatSeconds(m.video_second)}}</td>
+              <td>
+                <a v-if="m.youtube_link" :href="m.youtube_link" target="_blank">open</a>
+                <span v-else style="color:var(--text2)">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="!selectedMessageUser" class="empty">
+        <div class="empty-icon">👤</div>
+        Mesajları görmek için kullanıcı seç.
+      </div>
+      <div v-else-if="selectedUserMessages.length===0" class="empty">
+        <div class="empty-icon">📭</div>
+        Bu kullanıcı için mesaj bulunamadı.
       </div>
     </div>
   </div>
@@ -2135,6 +2277,13 @@ createApp({
     const rlLog           = ref([]);
     const messages        = ref([]);
     const chatInput       = ref('');
+    const chatUserName    = ref('default-user');
+    const chatVideoId     = ref('');
+    const chatVideoTitle  = ref('');
+    const chatVideoSecond = ref(0);
+    const messageUsers    = ref([]);
+    const selectedMessageUser = ref('');
+    const selectedUserMessages = ref([]);
     const isQuerying      = ref(false);
     const videoSearch     = ref('');
     const chatBox         = ref(null);
@@ -2145,6 +2294,7 @@ createApp({
     const tabs = [
       {id:'pipeline', icon:'⚙', label:'Pipeline'},
       {id:'chat',     icon:'💬', label:'Ask'},
+      {id:'messages', icon:'🧾', label:'Mesajlar'},
       {id:'videos',   icon:'📹', label:'Videos'},
       {id:'patterns', icon:'🔬', label:'Patterns'},
       {id:'kg',       icon:'🕸',  label:'KG'},
@@ -2207,6 +2357,82 @@ createApp({
       }
     }
 
+    function formatSeconds(seconds) {
+      const s = Math.max(0, Number(seconds||0));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = Math.floor(s % 60);
+      return [h, m, sec].map(v => String(v).padStart(2,'0')).join(':');
+    }
+
+    function formatLocalDate(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (isNaN(d)) return iso;
+      return d.toLocaleString('tr-TR');
+    }
+
+    async function loadMessageUsers() {
+      const res = await api('/messages/users');
+      if (res?.users) {
+        messageUsers.value = res.users;
+        if (!selectedMessageUser.value && res.users.length) {
+          selectedMessageUser.value = res.users[0];
+        }
+      }
+    }
+
+    async function loadSelectedUserMessages() {
+      if (!selectedMessageUser.value) {
+        selectedUserMessages.value = [];
+        return;
+      }
+      const res = await api('/messages?user=' + encodeURIComponent(selectedMessageUser.value));
+      if (res?.messages) selectedUserMessages.value = res.messages;
+    }
+
+    async function exportMessagesPdf() {
+      if (!selectedMessageUser.value) return;
+      const res = await api('/messages/export?user=' + encodeURIComponent(selectedMessageUser.value));
+      const rows = res?.messages || [];
+      const htmlRows = rows.map((m, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${(m.message_text||'').replaceAll('<','&lt;')}</td>
+          <td>${(m.video_title||'').replaceAll('<','&lt;')}</td>
+          <td>${formatLocalDate(m.created_at)}</td>
+          <td>${formatSeconds(m.video_second)}</td>
+          <td>${m.youtube_link ? `<a href="${m.youtube_link}">${m.youtube_link}</a>` : '—'}</td>
+        </tr>
+      `).join('');
+
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(`
+        <html><head><title>Mesajlar PDF</title>
+        <style>
+          body{font-family:Arial,sans-serif;padding:16px}
+          table{width:100%;border-collapse:collapse;font-size:12px}
+          th,td{border:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
+          th{background:#f5f5f5}
+          h2{margin-bottom:4px}
+        </style></head><body>
+          <h2>Kullanıcı Mesajları</h2>
+          <div><strong>Kullanıcı:</strong> ${selectedMessageUser.value}</div>
+          <div><strong>Oluşturma:</strong> ${new Date().toLocaleString('tr-TR')}</div>
+          <table>
+            <thead>
+              <tr><th>#</th><th>Mesaj</th><th>Video Başlığı</th><th>Tarih-Saat</th><th>Zaman Damgası</th><th>YouTube Link</th></tr>
+            </thead>
+            <tbody>${htmlRows || '<tr><td colspan="6">Kayıt yok</td></tr>'}</tbody>
+          </table>
+        </body></html>
+      `);
+      w.document.close();
+      w.focus();
+      w.print();
+    }
+
     async function startPipeline() {
       await api('/pipeline/start', {method:'POST'});
       setTimeout(pollStatus, 500);
@@ -2266,6 +2492,17 @@ createApp({
       if (!q || isQuerying.value) return;
       chatInput.value = '';
       messages.value.push({role:'user', text:q});
+      await api('/messages', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          username: chatUserName.value || 'default-user',
+          message_text: q,
+          video_id: chatVideoId.value || '',
+          video_title: chatVideoTitle.value || '',
+          video_second: Number(chatVideoSecond.value || 0),
+        })
+      });
       isQuerying.value = true;
       await nextTick();
       scrollChat();
@@ -2347,6 +2584,9 @@ createApp({
         api('/clusters').then(r=>r&&(clusters.value=r));
       }
       if (tab === 'kg')       api('/kg').then(r=>r&&(kgData.value=r));
+      if (tab === 'messages') {
+        loadMessageUsers().then(loadSelectedUserMessages);
+      }
       if (tab === 'rl')  {
         api('/rl/stats').then(r=>r&&(rlStats.value=r));
         api('/rl/log').then(r=>r&&(rlLog.value=r));
@@ -2357,6 +2597,7 @@ createApp({
     onMounted(async () => {
       await pollStatus();
       await refreshAll();
+      await loadMessageUsers();
       // poll status every 3s
       const intervalId = setInterval(async () => {
         const s = await api('/pipeline/status');
@@ -2372,10 +2613,13 @@ createApp({
     return {
       activeTab, tabs, pipelineStatus, dbStats, ollamaAlive,
       videos, patterns, clusters, kgData, rlStats, rlLog,
-      messages, chatInput, isQuerying, videoSearch, chatBox, logBox,
+      messages, chatInput, chatUserName, chatVideoId, chatVideoTitle, chatVideoSecond,
+      messageUsers, selectedMessageUser, selectedUserMessages,
+      isQuerying, videoSearch, chatBox, logBox,
       pipeSteps, suggestedQuestions, filteredVideos, sparkRewards,
       startPipeline, processExisting, pollStatus, refreshAll, sendChat, sendSuggestion,
-      formatAnswer, logClass, isActiveStep, isDoneStep,
+      loadMessageUsers, loadSelectedUserMessages, exportMessagesPdf,
+      formatAnswer, logClass, isActiveStep, isDoneStep, formatSeconds, formatLocalDate,
     };
   }
 }).mount('#app');
@@ -2418,6 +2662,30 @@ async def query_api(req: Request):
     if not q:
         return {"error": "empty question"}
     return P().query(q)
+
+@app.post("/api/messages")
+async def save_message(req: Request):
+    body = await req.json()
+    P().save_user_message(
+        username=body.get("username") or "",
+        message_text=body.get("message_text") or "",
+        video_id=body.get("video_id") or "",
+        video_title=body.get("video_title") or "",
+        video_second=body.get("video_second") or 0,
+    )
+    return {"ok": True}
+
+@app.get("/api/messages/users")
+async def message_users():
+    return {"users": P().get_message_users()}
+
+@app.get("/api/messages")
+async def user_messages(user: str = ""):
+    return {"messages": P().get_user_messages(user)}
+
+@app.get("/api/messages/export")
+async def export_messages(user: str = ""):
+    return {"messages": P().get_user_messages(user)}
 
 @app.get("/api/videos")
 async def videos():
