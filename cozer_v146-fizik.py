@@ -545,6 +545,27 @@ def norm_text(raw: str) -> str:
 def norm_username(name: str) -> str:
     return unicodedata.normalize("NFKC", name).lower().strip()
 
+def normalize_handle_token(name: str) -> str:
+    """
+    Toplu ban girdileri için dayanıklı kullanıcı adı normalizasyonu:
+    - Unicode NFKC normalize
+    - baştaki tek/çoklu @ kaldır
+    - trim + casefold
+    """
+    t = unicodedata.normalize("NFKC", str(name or "")).strip()
+    t = re.sub(r"^@+", "", t)
+    return t.casefold().strip()
+
+def candidate_author_forms(name: str) -> List[str]:
+    """
+    Veritabanında author alanı bazen '@user', bazen 'user' tutulabiliyor.
+    Eşleşme için her iki formu da üret.
+    """
+    base = normalize_handle_token(name)
+    if not base:
+        return []
+    return [base, f"@{base}"]
+
 def msg_id(video_id: str, author: str, ts: int, message: str) -> str:
     return hashlib.sha256(f"{video_id}|{author}|{ts}|{message}".encode()).hexdigest()
 
@@ -4344,10 +4365,19 @@ function unbanUser(a){
 }
 
 function parseBulkBanHandles(text){
+  const raw = String(text||'').normalize('NFKC');
+  const parts = [];
+  const regex = /@+([^,\n;]+)/g;
+  let m;
+  while((m = regex.exec(raw)) !== null){
+    parts.push(m[1]);
+  }
+  if(!parts.length){
+    parts.push(...raw.split(/[,\n;]+/));
+  }
   return Array.from(new Set(
-    String(text||'')
-      .split(/[\s,;]+/)
-      .map(t=>t.trim().replace(/^@+/,''))
+    parts
+      .map(t=>String(t||'').trim().replace(/^@+/,'').toLowerCase())
       .filter(Boolean)
   ));
 }
@@ -5295,12 +5325,24 @@ def create_app():
 
     @app.route("/api/user/<path:author>/ban", methods=["POST"])
     def api_ban(author):
-        db_exec("UPDATE user_profiles SET game_strategy='BAN' WHERE author=?",(author,))
+        forms = candidate_author_forms(author)
+        if not forms:
+            return jsonify({"success":False,"message":"Geçersiz kullanıcı adı"}), 400
+        db_exec(
+            f"UPDATE user_profiles SET game_strategy='BAN' WHERE lower(trim(author)) IN ({','.join(['?']*len(forms))})",
+            tuple(forms)
+        )
         return jsonify({"success":True,"message":f"@{author} BAN işaretlendi"})
 
     @app.route("/api/user/<path:author>/unban", methods=["POST"])
     def api_unban(author):
-        db_exec("UPDATE user_profiles SET game_strategy='BEHAVE' WHERE author=?",(author,))
+        forms = candidate_author_forms(author)
+        if not forms:
+            return jsonify({"success":False,"message":"Geçersiz kullanıcı adı"}), 400
+        db_exec(
+            f"UPDATE user_profiles SET game_strategy='BEHAVE' WHERE lower(trim(author)) IN ({','.join(['?']*len(forms))})",
+            tuple(forms)
+        )
         return jsonify({"success":True,"message":f"@{author} BAN kaldırıldı"})
 
     @app.route("/api/users/ban-bulk", methods=["POST"])
@@ -5314,35 +5356,62 @@ def create_app():
         if isinstance(raw_handles, list):
             handles = [str(h or "").strip() for h in raw_handles]
         else:
-            handles = re.split(r"[\s,;]+", str(raw_handles or ""))
+            raw_text = unicodedata.normalize("NFKC", str(raw_handles or ""))
+            # Öncelik: @ ile başlayan kalıpları virgül/noktalı virgül/yeni satıra kadar yakala.
+            # Böylece "DrOpen YourEyes" gibi boşluk içeren adlar parçalanmaz.
+            at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
+            if at_parts:
+                handles = at_parts
+            else:
+                handles = [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
 
         clean = []
         seen = set()
         for h in handles:
-            author = re.sub(r"^@+", "", str(h or "").strip())
+            author = normalize_handle_token(h)
             if not author:
                 continue
-            key = author.casefold()
-            if key in seen:
+            if author in seen:
                 continue
-            seen.add(key)
+            seen.add(author)
             clean.append(author)
 
         if not clean:
-            return jsonify({"error":"Geçerli kullanıcı listesi bulunamadı"}), 400
+            return jsonify({
+                "success": True,
+                "requested_count": 0,
+                "banned_count": 0,
+                "not_found": [],
+                "message": "İşlenecek geçerli kullanıcı adı bulunamadı"
+            })
+
+        expanded = []
+        for a in clean:
+            expanded.extend(candidate_author_forms(a))
+        expanded = list(dict.fromkeys(expanded))
 
         found_rows = db_exec(
-            f"SELECT author FROM user_profiles WHERE lower(author) IN ({','.join(['?']*len(clean))})",
-            tuple(a.casefold() for a in clean),
+            f"SELECT author FROM user_profiles WHERE lower(trim(author)) IN ({','.join(['?']*len(expanded))})",
+            tuple(expanded),
             fetch="all"
         ) or []
-        found_map = {str(r["author"]).casefold(): str(r["author"]) for r in found_rows if r.get("author")}
-        found_authors = [found_map[a.casefold()] for a in clean if a.casefold() in found_map]
-        not_found = [a for a in clean if a.casefold() not in found_map]
+        found_keys = set()
+        found_authors = []
+        for r in found_rows:
+            raw_author = str(r.get("author") or "").strip()
+            if not raw_author:
+                continue
+            canon = normalize_handle_token(raw_author)
+            if not canon:
+                continue
+            found_keys.add(canon)
+            found_authors.append(raw_author)
+        found_authors = list(dict.fromkeys(found_authors))
+        not_found = [a for a in clean if a not in found_keys]
 
         if found_authors:
             db_exec(
-                f"UPDATE user_profiles SET game_strategy='BAN' WHERE lower(author) IN ({','.join(['?']*len(found_authors))})",
+                f"UPDATE user_profiles SET game_strategy='BAN' WHERE lower(trim(author)) IN ({','.join(['?']*len(found_authors))})",
                 tuple(a.casefold() for a in found_authors)
             )
 
