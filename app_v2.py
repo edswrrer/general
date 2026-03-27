@@ -1927,16 +1927,6 @@ body::after{
         <button class="btn btn-primary" :disabled="!selectedMessageUser" @click="exportMessagesPdf">🧾 Mesajlar-Pdf</button>
       </div>
 
-      <div v-if="selectedMessageUser"
-           style="display:flex;justify-content:space-between;align-items:center;
-                  padding:8px 10px;border:1px solid var(--border);border-radius:8px;
-                  background:var(--bg2)">
-        <div style="font-size:11px;color:var(--text3)">
-          Seçili kullanıcı: <strong style="color:var(--cyan)">{{selectedMessageUser}}</strong>
-        </div>
-        <button class="btn btn-primary" @click="exportMessagesPdf">🧾 Mesajlar-Pdf</button>
-      </div>
-
       <div class="table-wrap" style="max-height:58vh;overflow-y:auto">
         <table class="tbl">
           <thead>
