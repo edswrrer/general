@@ -174,6 +174,7 @@ _DEFAULT_CFG = {
     "manual_login_timeout_sec": 180,
     "cookies_file":         "",
     "cookies_from_browser": "",
+    "nlp_supplement_slot_limit": 5,
 }
 
 def load_config(cfg_file: str = "yt_guardian_config.json") -> dict:
@@ -2498,7 +2499,7 @@ def _fetch_video_metadata(video_id: str) -> dict:
     return {}
 
 
-def nlp_supplement_video(video_id: str, title: str = "") -> dict:
+def nlp_supplement_video(video_id: str, title: str = "", slot_limit: int = 5) -> dict:
     """
     Manuel girilen video linkini, kanal taramasında replay-chat verisi
     çekilemeyen aralıklara algoritmik olarak yerleştirir.
@@ -2516,14 +2517,21 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     log.info("📌 NLP Takviye başlıyor: %s", video_id)
 
     # ── 1. Boş chat slotları ─────────────────────────────────────────────────
+    try:
+        slot_limit = int(slot_limit)
+    except Exception:
+        slot_limit = 5
+    slot_limit = max(1, min(50, slot_limit))
+
     empty_slots = db_exec(
         "SELECT video_id, title, video_date, chat_count, scraped_at"
         " FROM scraped_videos"
         " WHERE (chat_count IS NULL OR chat_count = 0)"
-        " ORDER BY scraped_at ASC LIMIT 5",
+        " ORDER BY scraped_at ASC LIMIT ?",
+        (slot_limit,),
         fetch="all"
     ) or []
-    log.info("Boş replay-chat slotu sayısı: %d", len(empty_slots))
+    log.info("Boş replay-chat slotu sayısı: %d (slot_limit=%d)", len(empty_slots), slot_limit)
 
     # ── 2. Video metadata ─────────────────────────────────────────────────────
     vid_meta  = _fetch_video_metadata(video_id)
@@ -2532,6 +2540,8 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
 
     log.info("Takviye video: id=%s  tarih=%s  başlık=%s",
              video_id, vid_date, vid_title[:50])
+    log.info("Takviye kontrolü: link=%s  tarih=%s  başlık=%s",
+             f"https://www.youtube.com/watch?v={video_id}", vid_date or "-", vid_title[:50] or "-")
 
     # ── 3. Tarih eşleştirme ───────────────────────────────────────────────────
     matched_slot: Optional[dict] = None
@@ -4457,6 +4467,7 @@ let replayState = {windows:[],active:null,messages:[],idx:0,timer:null,playing:f
 let _replayWindowsCache = null;   // windows listesi
 let _replayMsgCache = {};         // video_id+date → messages[]
 let _replayFlagCache = {};        // video_id+date → flagged_users[]
+let _replaySupplementBusy = false;
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
@@ -5106,6 +5117,15 @@ function fmtReplayDate(raw){
 
 // önbellek anahtarı üretici
 function _replayCacheKey(win){ return (win.video_id||'')+'|'+(win.window_date||''); }
+function _normalizeDateKey(raw){
+  return String(raw||'').replace(/[^0-9]/g,'').substring(0,8);
+}
+function _extractReplayVideoId(raw){
+  const s = String(raw||'').trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  const m = s.match(/([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : '';
+}
 
 /**
  * loadReplayWindows(force)
@@ -5155,10 +5175,71 @@ function loadReplayWindows(force){
           }
         });
       });
+      _autoSupplementReplayWindows(_replayWindowsCache);
     } else {
       status('✅ Sohbet pencereleri hazır', 2000);
     }
   }).fail(()=>status('❌ Sohbet pencereleri yüklenemedi',3000));
+}
+
+function _autoSupplementReplayWindows(windows){
+  if(_replaySupplementBusy) return;
+  _replaySupplementBusy = true;
+  const list = (windows||[]).slice();
+  if(!list.length){ _replaySupplementBusy = false; return; }
+  let idx = 0, queued = 0, skipped = 0;
+  const total = list.length;
+  status('🧪 Replay pencereleri otomatik kontrol ediliyor (0/'+total+')...');
+
+  function done(){
+    _replaySupplementBusy = false;
+    status(`✅ Replay kontrol tamamlandı · takviye: ${queued}, atlandı: ${skipped}`, 7000);
+  }
+
+  function next(){
+    if(idx >= total){ done(); return; }
+    const win = list[idx++];
+    const videoId = _extractReplayVideoId(win.video_id || '');
+    const winDate = _normalizeDateKey(win.window_date || '');
+    if(!videoId || !winDate){
+      skipped++;
+      next();
+      return;
+    }
+    $.get('/api/replay/window/messages',{
+      video_id: videoId,
+      window_date: winDate,
+      limit: 1
+    }, function(d){
+      const msgCount = Number(d.total || 0);
+      if(msgCount > 0){
+        skipped++;
+        status(`🧪 Replay kontrol ediliyor (${idx}/${total})...`);
+        next();
+        return;
+      }
+      const fullUrl = 'https://www.youtube.com/watch?v=' + videoId;
+      $.post('/api/nlp/supplement-video',{
+        video_url: fullUrl,
+        title: (win.title || '').trim(),
+        slot_limit: 20
+      }, function(sd){
+        if(sd && sd.success){ queued++; }
+        else { skipped++; }
+        status(`🧪 Replay kontrol ediliyor (${idx}/${total})...`);
+        next();
+      }).fail(function(){
+        skipped++;
+        status(`🧪 Replay kontrol ediliyor (${idx}/${total})...`);
+        next();
+      });
+    }).fail(function(){
+      skipped++;
+      status(`🧪 Replay kontrol ediliyor (${idx}/${total})...`);
+      next();
+    });
+  }
+  next();
 }
 
 function _renderReplayWindows(windows){
@@ -5199,8 +5280,8 @@ function openReplayWindow(idx){
     $('#replay-stream').html('<span class="spin"></span>');
     $('#replay-meta').text('Sohbet yükleniyor...');
     $.get('/api/replay/window/messages',{
-      video_id: win.video_id || '',
-      window_date: win.window_date || '',
+      video_id: _extractReplayVideoId(win.video_id || ''),
+      window_date: _normalizeDateKey(win.window_date || ''),
       limit: 5000
     },function(d){
       _replayMsgCache[ckey] = d.messages || [];
@@ -6916,15 +6997,16 @@ def create_app():
     def api_replay_window_messages():
         vid = (request.args.get("video_id", "") or "").strip()
         win_date = (request.args.get("window_date", "") or "").strip()
+        win_date_norm = re.sub(r"\D+", "", win_date)[:8]
         lim = max(50, min(5000, int(request.args.get("limit", 5000))))
         wh = ["m.deleted=0"]
         prms: List = []
         if vid:
             wh.append("m.video_id=?")
             prms.append(vid)
-        if win_date:
-            wh.append("COALESCE(m.video_date,'')=?")
-            prms.append(win_date)
+        if win_date_norm:
+            wh.append("REPLACE(REPLACE(COALESCE(m.video_date,''),'-',''),'.','')=?")
+            prms.append(win_date_norm)
         where_sql = " AND ".join(wh)
         rows = db_exec(
             "SELECT m.*, up.threat_level, up.threat_score"
@@ -7166,6 +7248,11 @@ def create_app():
         """
         raw_url = (request.form.get("video_url") or "").strip()
         title   = (request.form.get("title") or "").strip()
+        try:
+            slot_limit = int(request.form.get("slot_limit", CFG.get("nlp_supplement_slot_limit", 5)))
+        except Exception:
+            slot_limit = int(CFG.get("nlp_supplement_slot_limit", 5))
+        slot_limit = max(1, min(50, slot_limit))
         if not raw_url:
             return jsonify({"success": False, "error": "video_url gerekli"})
 
@@ -7175,7 +7262,7 @@ def create_app():
 
         def _bg():
             try:
-                result = nlp_supplement_video(video_id, title=title)
+                result = nlp_supplement_video(video_id, title=title, slot_limit=slot_limit)
                 if _sio:
                     try:
                         _sio.emit("nlp_supplement_done", result, namespace="/ws")
@@ -7200,6 +7287,7 @@ def create_app():
         return jsonify({
             "success": True,
             "video_id": video_id,
+            "slot_limit": slot_limit,
             "message": f"NLP takviye başlatıldı: {video_id}"
         })
 
