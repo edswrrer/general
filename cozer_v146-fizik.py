@@ -3682,6 +3682,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <div class="ni" onclick="nav('users',this)"><span class="ic">👥</span>Kullanıcılar</div>
     <div class="ni" onclick="nav('ban-correlation',this)"><span class="ic">🧠</span>Ban-Korelasyon</div>
     <div class="ni" onclick="nav('messages',this)"><span class="ic">💬</span>Mesajlar</div>
+    <div class="ni" onclick="nav('replay-flow',this)"><span class="ic">🕒</span>Sohbet Akışı</div>
     <div class="ni" onclick="nav('graph',this)"><span class="ic">🔗</span>İlişki Ağı</div>
     <div class="ni" onclick="nav('live',this)"><span class="ic">⚡</span>Canlı Yayın</div>
     <div class="ni" onclick="nav('search',this)"><span class="ic">🔍</span>Arama</div>
@@ -3793,6 +3794,37 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
   </div>
   <div id="mlist"></div>
   <div class="pager" id="mpager"></div>
+</div>
+
+<!-- SOHBET AKIŞI -->
+<div id="tab-replay-flow" class="tab">
+  <div style="display:grid;grid-template-columns:320px 1fr;gap:12px;align-items:start">
+    <div class="card" style="margin-bottom:0">
+      <h3>🗓️ Tarihe Göre Sohbet Pencereleri</h3>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="loadReplayWindows()">🔄 Yenile</button>
+        <span id="replay-window-count" style="font-size:11px;color:var(--tx2)"></span>
+      </div>
+      <div id="replay-window-list" style="max-height:560px;overflow-y:auto"></div>
+    </div>
+    <div class="card" style="margin-bottom:0">
+      <h3>▶ Gerçek-Zamanlı Sohbet Simülasyonu</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn grn" onclick="playReplay()">▶ Oynat</button>
+        <button class="btn ghost" onclick="pauseReplay()">⏸ Duraklat</button>
+        <button class="btn ghost" onclick="resetReplay()">⏮ Sıfırla</button>
+        <label style="font-size:11px;color:var(--tx2)">Hız</label>
+        <select class="inp" id="replay-speed" style="width:85px" onchange="setReplaySpeed(this.value)">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="4">4x</option>
+        </select>
+        <span id="replay-meta" style="font-size:11px;color:var(--tx2);margin-left:auto"></span>
+      </div>
+      <div id="replay-stream" style="max-height:560px;overflow-y:auto"></div>
+    </div>
+  </div>
 </div>
 
 <!-- GRAF -->
@@ -3955,6 +3987,7 @@ let page = {users:1,msgs:1}, pgSize = 50;
 let threatChart = null, graphLoaded = false;
 let usersView = 'all';
 let usersSort = {key:'threat_score', dir:'desc'};
+let replayState = {windows:[],active:null,messages:[],idx:0,timer:null,playing:false,speed:1,lastTs:0};
 const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#3498DB',P:'#9B59B6'};
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
@@ -3967,6 +4000,7 @@ function nav(name,el){
   else if(name==='users') loadUsers(1);
   else if(name==='ban-correlation') initBannedCorrelationTab();
   else if(name==='messages') loadMsgs(1);
+  else if(name==='replay-flow') loadReplayWindows();
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
   else if(name==='settings') loadSysStatus();
@@ -4471,6 +4505,128 @@ function loadMsgs(p){
   });
 }
 
+// ── SOHBET AKIŞI (TARİHE GÖRE + GERÇEK ZAMAN SİMÜLASYON) ───────────────────
+function fmtReplayDate(raw){
+  if(!raw) return '-';
+  if(raw.length===8){
+    return `${raw.substring(0,4)}-${raw.substring(4,6)}-${raw.substring(6,8)}`;
+  }
+  return raw;
+}
+
+function loadReplayWindows(){
+  status('Sohbet pencereleri yükleniyor...');
+  $.get('/api/replay/windows',{limit:120},function(d){
+    replayState.windows = d.windows || [];
+    $('#replay-window-count').text(`${replayState.windows.length} pencere`);
+    let h='';
+    replayState.windows.forEach((w,i)=>{
+      const dt = fmtReplayDate(w.window_date||'');
+      const ttl = (w.title || w.video_id || 'Video').substring(0,55);
+      const dur = (w.min_timestamp&&w.max_timestamp)
+        ? `${new Date(w.min_timestamp*1000).toLocaleTimeString()} - ${new Date(w.max_timestamp*1000).toLocaleTimeString()}`
+        : '-';
+      h += `<div class="msg" style="cursor:pointer" onclick="openReplayWindow(${i})">
+        <div class="meta"><b>${dt}</b><span style="margin-left:auto;color:var(--tx2)">${w.message_count||0} mesaj</span></div>
+        <div class="txt">${hl(ttl,'')}</div>
+        <div class="meta" style="margin-top:4px"><span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span><span style="font-size:10px;color:var(--tx2)">${dur}</span></div>
+      </div>`;
+    });
+    $('#replay-window-list').html(h || '<p style="color:var(--tx2)">Sohbet penceresi bulunamadı</p>');
+    status('✅ Sohbet pencereleri hazır',2000);
+  }).fail(()=>status('❌ Sohbet pencereleri yüklenemedi',3000));
+}
+
+function openReplayWindow(idx){
+  const win = replayState.windows[idx];
+  if(!win) return;
+  pauseReplay();
+  replayState.active = win;
+  replayState.messages = [];
+  replayState.idx = 0;
+  replayState.lastTs = 0;
+  $('#replay-stream').html('<span class="spin"></span>');
+  $('#replay-meta').text('Sohbet yükleniyor...');
+  $.get('/api/replay/window/messages',{
+    video_id: win.video_id || '',
+    window_date: win.window_date || '',
+    limit: 5000
+  },function(d){
+    replayState.messages = d.messages || [];
+    replayState.idx = 0;
+    replayState.lastTs = 0;
+    $('#replay-stream').html('<p style="color:var(--tx2)">Hazır. ▶ Oynat ile başlatın.</p>');
+    $('#replay-meta').text(`${fmtReplayDate(win.window_date||'')} · ${(d.messages||[]).length} mesaj`);
+  }).fail(function(){
+    $('#replay-stream').html('<p style="color:var(--red)">Mesajlar yüklenemedi</p>');
+    $('#replay-meta').text('Hata');
+  });
+}
+
+function setReplaySpeed(v){
+  replayState.speed = Math.max(0.25, Number(v)||1);
+}
+
+function appendReplayMessage(m){
+  const cls=LVL2CLS[m.threat_level||'GREEN']||'G';
+  const ts=m.timestamp?new Date(m.timestamp*1000).toLocaleString():'';
+  const msg = `<div class="msg ${['R','C','O'].includes(cls)?'hi':''}">
+      <div class="meta">
+        <a href="#" onclick="showUser('${m.author}')">@${m.author}</a>
+        <span class="badge bg-${cls}" style="font-size:9px">${m.threat_level||'GREEN'}</span>
+        <span style="font-size:10px">${m.source_type||''}</span>
+        <span>${ts}</span>
+      </div>
+      <div class="txt">${hl(m.message||'','')}</div>
+      <div class="meta" style="margin-top:6px">
+        ${m.watch_url?`<a href="${m.watch_url}" target="_blank" rel="noopener noreferrer" class="btn ghost" style="font-size:10px;padding:2px 6px;text-decoration:none">🎬 ${m.watch_seconds||0}.sn YouTube zamanı</a>`:'<span style="font-size:10px;color:var(--tx2)">Video zamanı yok</span>'}
+      </div>
+    </div>`;
+  $('#replay-stream').append(msg);
+  const box = $('#replay-stream')[0];
+  if(box) box.scrollTop = box.scrollHeight;
+}
+
+function stepReplay(){
+  if(!replayState.playing) return;
+  if(replayState.idx >= replayState.messages.length){
+    pauseReplay();
+    status('✅ Sohbet akışı tamamlandı',2000);
+    return;
+  }
+  const m = replayState.messages[replayState.idx];
+  appendReplayMessage(m);
+  const prevTs = replayState.lastTs || (m.timestamp||0);
+  const curTs  = m.timestamp || prevTs;
+  const rawGap = Math.max(0, curTs - prevTs);
+  replayState.lastTs = curTs;
+  replayState.idx += 1;
+  const waitMs = Math.min(1800, Math.max(80, (rawGap*1000) / replayState.speed));
+  replayState.timer = setTimeout(stepReplay, waitMs);
+}
+
+function playReplay(){
+  if(!replayState.messages.length){
+    status('Önce soldan bir sohbet penceresi seçin',3000);
+    return;
+  }
+  if(replayState.playing) return;
+  replayState.playing = true;
+  stepReplay();
+}
+
+function pauseReplay(){
+  replayState.playing = false;
+  if(replayState.timer){ clearTimeout(replayState.timer); replayState.timer = null; }
+}
+
+function resetReplay(){
+  pauseReplay();
+  replayState.idx = 0;
+  replayState.lastTs = 0;
+  $('#replay-stream').html('<p style="color:var(--tx2)">Sıfırlandı. ▶ Oynat ile yeniden başlatın.</p>');
+}
+
 function hl(text,q){
   if(!q||q.length<2) return text;
   const re=new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
@@ -4960,6 +5116,60 @@ def create_app():
 
     @app.route("/")
     def index(): return render_template_string(_HTML)
+
+    def _attach_watch_links(rows: List[dict]) -> List[dict]:
+        """Mesaj satırlarına video içi zaman ofseti ve YouTube linki ekle."""
+        out = [dict(r) for r in (rows or [])]
+        if not out:
+            return out
+
+        vids = sorted({str(m.get("video_id") or "").strip() for m in out if (m.get("video_id") or "").strip()})
+        ts_map = {}
+        if vids:
+            q_marks = ",".join(["?"] * len(vids))
+            b_rows = db_exec(
+                f"SELECT video_id, source_type, MIN(timestamp) AS min_ts"
+                f" FROM messages WHERE video_id IN ({q_marks}) AND timestamp>0"
+                f" GROUP BY video_id, source_type",
+                tuple(vids), fetch="all"
+            ) or []
+            ts_map = {
+                (str(r["video_id"]), str(r["source_type"] or "")): int(r["min_ts"] or 0)
+                for r in b_rows
+            }
+
+        for m in out:
+            vid = str(m.get("video_id") or "").strip()
+            ttl = (m.get("title") or "").strip()
+            vdt = (m.get("video_date") or "").strip()
+
+            if (not vid) and (ttl or vdt):
+                r = db_exec(
+                    "SELECT video_id FROM scraped_videos"
+                    " WHERE (?='' OR title=?) AND (?='' OR video_date=?)"
+                    " ORDER BY scraped_at DESC LIMIT 1",
+                    (ttl, ttl, vdt, vdt), fetch="one"
+                ) or {}
+                vid = str(r.get("video_id") or "").strip()
+                if vid:
+                    m["video_id"] = vid
+
+            if not vid:
+                m["watch_url"] = ""
+                m["watch_seconds"] = 0
+                continue
+
+            min_ts = ts_map.get((vid, str(m.get("source_type") or "")), 0)
+            secs = _estimate_watch_seconds(
+                ts=m.get("timestamp") or 0,
+                video_date=vdt,
+                min_ts=min_ts,
+                source_type=str(m.get("source_type") or "")
+            )
+            m["watch_seconds"] = int(secs)
+            m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
+
+        return out
 
     # ── Stats ─────────────────────────────────────────────────────────────────
     @app.route("/api/stats")
@@ -5566,57 +5776,61 @@ def create_app():
             f" ORDER BY m.timestamp DESC LIMIT ? OFFSET ?",
             tuple(prms)+(sz,off),fetch="all") or []
 
-        out = [dict(r) for r in rows]
-        if out:
-            # Sayfadaki videolar için min timestamp'leri tek sorguda al.
-            vids = sorted({str(m.get("video_id") or "").strip() for m in out if (m.get("video_id") or "").strip()})
-            ts_map = {}
-            if vids:
-                q_marks = ",".join(["?"] * len(vids))
-                b_rows = db_exec(
-                    f"SELECT video_id, source_type, MIN(timestamp) AS min_ts"
-                    f" FROM messages WHERE video_id IN ({q_marks}) AND timestamp>0"
-                    f" GROUP BY video_id, source_type",
-                    tuple(vids), fetch="all"
-                ) or []
-                ts_map = {
-                    (str(r["video_id"]), str(r["source_type"] or "")): int(r["min_ts"] or 0)
-                    for r in b_rows
-                }
-
-            for m in out:
-                vid = str(m.get("video_id") or "").strip()
-                ttl = (m.get("title") or "").strip()
-                vdt = (m.get("video_date") or "").strip()
-
-                # video_id boşsa replay tarih + başlık ile scraped_videos'dan çöz.
-                if (not vid) and (ttl or vdt):
-                    r = db_exec(
-                        "SELECT video_id FROM scraped_videos"
-                        " WHERE (?='' OR title=?) AND (?='' OR video_date=?)"
-                        " ORDER BY scraped_at DESC LIMIT 1",
-                        (ttl, ttl, vdt, vdt), fetch="one"
-                    ) or {}
-                    vid = str(r.get("video_id") or "").strip()
-                    if vid:
-                        m["video_id"] = vid
-
-                if not vid:
-                    m["watch_url"] = ""
-                    m["watch_seconds"] = 0
-                    continue
-
-                min_ts = ts_map.get((vid, str(m.get("source_type") or "")), 0)
-                secs = _estimate_watch_seconds(
-                    ts=m.get("timestamp") or 0,
-                    video_date=vdt,
-                    min_ts=min_ts,
-                    source_type=str(m.get("source_type") or "")
-                )
-                m["watch_seconds"] = int(secs)
-                m["watch_url"] = f"https://youtu.be/{vid}?t={int(secs)}" if secs > 0 else f"https://youtu.be/{vid}"
+        out = _attach_watch_links(rows)
 
         return jsonify({"messages":out,"total":tot})
+
+    @app.route("/api/replay/windows")
+    def api_replay_windows():
+        lim = max(10, min(300, int(request.args.get("limit", 120))))
+        rows = db_exec(
+            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+            " MAX(title) AS title, COUNT(*) AS message_count,"
+            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
+            " FROM messages WHERE deleted=0"
+            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
+            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+            " LIMIT ?",
+            (lim,), fetch="all"
+        ) or []
+        out = []
+        for r in rows:
+            video_date = (r.get("video_date") or "").strip()
+            if (not video_date) and int(r.get("max_ts") or 0) > 0:
+                video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
+            out.append({
+                "window_date": video_date,
+                "video_id": (r.get("video_id") or "").strip(),
+                "title": (r.get("title") or "").strip(),
+                "message_count": int(r.get("message_count") or 0),
+                "min_timestamp": int(r.get("min_ts") or 0),
+                "max_timestamp": int(r.get("max_ts") or 0),
+            })
+        return jsonify({"windows": out})
+
+    @app.route("/api/replay/window/messages")
+    def api_replay_window_messages():
+        vid = (request.args.get("video_id", "") or "").strip()
+        win_date = (request.args.get("window_date", "") or "").strip()
+        lim = max(50, min(5000, int(request.args.get("limit", 5000))))
+        wh = ["m.deleted=0"]
+        prms: List = []
+        if vid:
+            wh.append("m.video_id=?")
+            prms.append(vid)
+        if win_date:
+            wh.append("COALESCE(m.video_date,'')=?")
+            prms.append(win_date)
+        where_sql = " AND ".join(wh)
+        rows = db_exec(
+            "SELECT m.*, up.threat_level, up.threat_score"
+            " FROM messages m LEFT JOIN user_profiles up ON m.author=up.author"
+            f" WHERE {where_sql}"
+            " ORDER BY m.timestamp ASC LIMIT ?",
+            tuple(prms) + (lim,), fetch="all"
+        ) or []
+        out = _attach_watch_links(rows)
+        return jsonify({"messages": out, "total": len(out)})
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     @app.route("/api/analyze/user", methods=["POST"])
