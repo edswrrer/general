@@ -5130,7 +5130,7 @@ function loadReplayWindows(force){
     _replayFlagCache = {};
   }
   status('Sohbet pencereleri yükleniyor...');
-  $.get('/api/replay/windows',{limit:120},function(d){
+  $.get('/api/replay/windows',{limit:0},function(d){
     _replayWindowsCache = d.windows || [];
     _renderReplayWindows(_replayWindowsCache);
     if(force && _replayWindowsCache.length){
@@ -6936,6 +6936,7 @@ def create_app():
     def api_replay_flagged_users():
         vid = (request.args.get("video_id","") or "").strip()
         win_date = (request.args.get("window_date","") or "").strip()
+        author = (request.args.get("author","") or "").strip()
         threshold = float(request.args.get("threshold","0.35"))
         out = _collect_flagged_users(video_id=vid, window_date=win_date, threshold=threshold)
         return jsonify({"flagged_users": out, "total": len(out)})
