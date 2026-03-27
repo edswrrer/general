@@ -646,6 +646,36 @@ def parse_bulk_handles(raw_handles: Any) -> List[str]:
         clean.append(author)
     return clean
 
+def parse_bulk_handles(raw_handles: Any) -> List[str]:
+    """
+    Toplu ban için kullanıcı adı listesi ayrıştırıcı.
+    Tek bir metin veya liste alır; @ işaretli kalıpları önceliklendirir ve
+    boşluk içeren kullanıcı adlarını korur.
+    """
+    def _split_from_text(text: str) -> List[str]:
+        raw_text = unicodedata.normalize("NFKC", str(text or ""))
+        at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
+        if at_parts:
+            return at_parts
+        return [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
+
+    tokens: List[str] = []
+    if isinstance(raw_handles, list):
+        for item in raw_handles:
+            tokens.extend(_split_from_text(str(item or "")))
+    else:
+        tokens = _split_from_text(str(raw_handles or ""))
+
+    clean: List[str] = []
+    seen = set()
+    for token in tokens:
+        author = normalize_handle_token(token)
+        if not author or author in seen:
+            continue
+        seen.add(author)
+        clean.append(author)
+    return clean
+
 def msg_id(video_id: str, author: str, ts: int, message: str) -> str:
     return hashlib.sha256(f"{video_id}|{author}|{ts}|{message}".encode()).hexdigest()
 
@@ -4447,22 +4477,19 @@ function unbanUser(a){
 function parseBulkBanHandles(text){
   const raw = String(text||'').normalize('NFKC');
   const parts = [];
-  raw.split(/[,\n;]+/).forEach(chunk=>{
-    const frag = String(chunk||'').trim();
-    if(!frag) return;
-    const handleMatches = [...frag.matchAll(/@{1,2}([^\s@,;\n]+)/g)].map(m=>m[1]);
-    if(handleMatches.length){
-      parts.push(...handleMatches);
-      const full = frag.replace(/^@+/, '').trim();
-      if(full) parts.push(full);
-    }else{
-      parts.push(frag);
-    }
-  });
+  const regex = /@+([^,\n;]+)/g;
+  let m;
+  while((m = regex.exec(raw)) !== null){
+    // @ ile başlayan blokları virgül/noktalı virgül/yeni satıra kadar al.
+    // Böylece boşluk içeren kullanıcı adları parçalanmaz.
+    parts.push(m[1]);
+  }
+  if(!parts.length){
+    parts.push(...raw.split(/[,\n;]+/));
+  }
   return Array.from(new Set(
     parts
       .map(t=>String(t||'').normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
-      .map(t=>t.replace(/\s+/g,' ').replace(/[-_.]+$/g,'').trim())
       .filter(Boolean)
   ));
 }
