@@ -5311,10 +5311,16 @@ function loadReplayWindows(force){
 }
 
 function _renderReplayWindows(windows){
-  replayState.windows = windows;
-  $('#replay-window-count').text(`${windows.length} pencere`);
+  const sorted = (windows||[]).slice().sort((a,b)=>{
+    const at = String(a.title||a.video_id||'').toLocaleLowerCase('tr');
+    const bt = String(b.title||b.video_id||'').toLocaleLowerCase('tr');
+    if(at && bt && at !== bt) return at.localeCompare(bt,'tr');
+    return String(b.window_date||'').localeCompare(String(a.window_date||''));
+  });
+  replayState.windows = sorted;
+  $('#replay-window-count').text(`${sorted.length} pencere`);
   let h='';
-  windows.forEach((w,i)=>{
+  sorted.forEach((w,i)=>{
     const dt = fmtReplayDate(w.window_date||'');
     const ttl = (w.title || w.video_id || 'Video').substring(0,55);
     const dur = (w.min_timestamp&&w.max_timestamp)
