@@ -5389,8 +5389,39 @@ function openReplayWindow(idx){
     replayState.messages = msgs;
     replayState.idx = 0;
     replayState.lastTs = 0;
+    const metaTxt = `${fmtReplayDate(win.window_date||'')} · ${msgs.length} mesaj`;
+    $('#replay-meta').text(metaTxt);
+    if(!msgs.length && (win.video_id||'').length>=6){
+      $('#replay-stream').html('<p style="color:var(--ylw)">Bu pencerede mesaj yok. Otomatik tamamlama çalıştırılıyor...</p>');
+      recalcReplayWindow(win, function(ok){
+        if(!ok){
+          $('#replay-stream').html('<p style="color:var(--red)">Mesaj yok ve otomatik tamamlama başarısız.</p>');
+          return;
+        }
+        const ckey2 = _replayCacheKey(win);
+        delete _replayMsgCache[ckey2];
+        delete _replayFlagCache[ckey2];
+        $.get('/api/replay/window/messages',{
+          video_id: win.video_id || '',
+          window_date: win.window_date || '',
+          limit: 5000,
+          session_id: replaySession.id || 'default',
+          db_path: replaySession.db_path || ''
+        },function(rd){
+          replayState.messages = rd.messages || [];
+          replayState.idx = 0;
+          replayState.lastTs = 0;
+          _replayMsgCache[ckey2] = replayState.messages;
+          $('#replay-stream').html('<p style="color:var(--tx2)">Hazır. ▶ Oynat ile başlatın.</p>');
+          $('#replay-meta').text(`${fmtReplayDate(win.window_date||'')} · ${replayState.messages.length} mesaj`);
+          _loadFlagged(function(flagged){ _renderFlaggedList(flagged, win); });
+        }).fail(function(){
+          $('#replay-stream').html('<p style="color:var(--red)">Mesajlar yüklenemedi</p>');
+        });
+      });
+      return;
+    }
     $('#replay-stream').html('<p style="color:var(--tx2)">Hazır. ▶ Oynat ile başlatın.</p>');
-    $('#replay-meta').text(`${fmtReplayDate(win.window_date||'')} · ${msgs.length} mesaj`);
 
     _loadFlagged(function(flagged){
       _renderFlaggedList(flagged, win);
@@ -7176,7 +7207,24 @@ def create_app():
             " MAX(title) AS title, COUNT(*) AS message_count,"
             " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
             " FROM messages WHERE deleted=0"
-            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
+            " GROUP BY COALESCE(video_id,''), COALESCE(video_date,'')"
+            "), base AS ("
+            " SELECT COALESCE(sv.video_id,'') AS video_id,"
+            "        COALESCE(sv.video_date,'') AS video_date,"
+            "        COALESCE(NULLIF(sv.title,''), ma.msg_title, sv.video_id, '') AS title,"
+            "        COALESCE(ma.cnt,0) AS message_count,"
+            "        COALESCE(ma.min_ts,0) AS min_ts,"
+            "        COALESCE(ma.max_ts,0) AS max_ts"
+            " FROM scraped_videos sv"
+            " LEFT JOIN msg_agg ma ON ma.video_id = COALESCE(sv.video_id,'')"
+            " UNION ALL "
+            " SELECT ma.video_id, ma.video_date, COALESCE(ma.msg_title, ma.video_id, ''),"
+            "        ma.cnt, ma.min_ts, ma.max_ts"
+            " FROM msg_agg ma"
+            " WHERE NOT EXISTS (SELECT 1 FROM scraped_videos sv2 WHERE COALESCE(sv2.video_id,'') = ma.video_id)"
+            ")"
+            " SELECT video_date, video_id, title, message_count, min_ts, max_ts"
+            " FROM base"
             " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
             " LIMIT ?",
             (lim,), fetch="all"
