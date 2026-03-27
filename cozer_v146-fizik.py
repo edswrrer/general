@@ -4192,6 +4192,81 @@ function showBannedCorrelations(){
     });
 }
 
+function initBannedCorrelationTab(){
+  $('#bc-summary').text('Banlanan kullanıcılar yükleniyor...');
+  $.get('/api/users',{page:1,size:1000,banned:1,sort_by:'author',sort_dir:'asc'},function(d){
+    const users = d.users || [];
+    if(!users.length){
+      $('#bc-author').html('<option value="">Banlanan kullanıcı yok</option>');
+      $('#bc-summary').text('Banlanan kullanıcı bulunamadı.');
+      $('#bc-count').text('0 kullanıcı');
+      return;
+    }
+    let opt = '<option value="">Kullanıcı seçin...</option>';
+    users.forEach(u=>{
+      opt += `<option value="${u.author}">@${u.author}</option>`;
+    });
+    $('#bc-author').html(opt);
+    $('#bc-count').text(`${users.length} banlanan kullanıcı`);
+    $('#bc-summary').text('Korelasyon analizi için bir kullanıcı seçin.');
+  }).fail(function(){
+    $('#bc-summary').text('❌ Banlanan kullanıcı listesi alınamadı.');
+  });
+}
+
+function loadBannedCorrelationsTab(){
+  const author = ($('#bc-author').val()||'').trim();
+  if(!author){ alert('Lütfen banlanan bir kullanıcı seçin.'); return; }
+  const minCorr = parseFloat($('#bc-mincorr').val()||'0.62');
+  $('#bc-summary').html('<span class="spin"></span> Korelasyonlar hesaplanıyor...');
+  $('#bc-results').html('');
+  $.get('/api/banned/correlations',{
+    banned_author:author,
+    min_corr:isNaN(minCorr)?0.62:minCorr
+  },function(d){
+    const rows = d.rows || [];
+    $('#bc-count').text(`${rows.length} satır`);
+    if(!rows.length){
+      $('#bc-summary').text(`@${author} için eşik üstü korelasyon bulunamadı.`);
+      $('#bc-results').html('');
+      return;
+    }
+    let h = `<table class="tbl"><thead><tr>
+      <th>Banlanan</th><th>Video</th><th>Banlanan Zaman</th>
+      <th>Korelasyonlu Yazar</th><th>Yazar Zaman</th>
+      <th>Korelasyon</th><th>BART</th><th>Q-Learning</th><th>Sohbet Konumu</th>
+    </tr></thead><tbody>`;
+    rows.forEach(r=>{
+      const ts = r.banned_timestamp ? new Date(r.banned_timestamp*1000).toLocaleString() : '-';
+      const cts = r.candidate_timestamp ? new Date(r.candidate_timestamp*1000).toLocaleString() : '-';
+      const corrPct = ((r.correlation||0)*100).toFixed(1);
+      const bartPct = ((r.bart_similarity||0)*100).toFixed(1);
+      const qPct = ((r.qlearning_similarity||0)*100).toFixed(1);
+      const syncTxt = r.sync_type==='adjacent' ? 'Önce/Sonra Sohbet' : 'Aynı Sohbet';
+      const vidLink = r.video_id
+        ? `<a href="https://www.youtube.com/watch?v=${r.video_id}" target="_blank" rel="noopener noreferrer">${r.video_title||r.video_id}</a>`
+        : (r.video_title||'-');
+      h += `<tr>
+        <td>@${r.banned_author||'-'}</td>
+        <td>${vidLink}</td>
+        <td>${ts}</td>
+        <td>@${r.candidate_author||'-'}</td>
+        <td>${cts}</td>
+        <td><b style="color:var(--acc)">${corrPct}%</b></td>
+        <td>${bartPct}%</td>
+        <td>${qPct}%</td>
+        <td>${syncTxt}</td>
+      </tr>`;
+    });
+    h += '</tbody></table>';
+    $('#bc-summary').text(`@${author} için korelasyon sonuçları (min ${(isNaN(minCorr)?0.62:minCorr).toFixed(2)}).`);
+    $('#bc-results').html(h);
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Korelasyon verisi alınamadı';
+    $('#bc-summary').text('❌ '+err);
+  });
+}
+
 function analyzeUser(a){
   status('Analiz: @'+a+'...');
   $.post('/api/analyze/user',{author:a},function(d){
@@ -4974,11 +5049,14 @@ def create_app():
         try:
             min_corr = float(request.args.get("min_corr", 0.62))
             max_rows = min(int(request.args.get("limit", 300)), 1000)
+            banned_author = (request.args.get("banned_author", "") or "").strip()
 
             banned_users = db_exec(
                 "SELECT author, q_state, antisemitism_score FROM user_profiles WHERE game_strategy='BAN'",
                 fetch="all"
             ) or []
+            if banned_author:
+                banned_users = [r for r in banned_users if (r.get("author") or "").strip() == banned_author]
             if not banned_users:
                 return jsonify({"rows": [], "total": 0})
 
