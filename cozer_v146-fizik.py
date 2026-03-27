@@ -797,56 +797,7 @@ def _load_replay_window_messages(video_id: str = "", window_date: str = "",
         out.append(row)
         if len(out) >= limit:
             break
-    # Bazı legacy kayıtlarda video_date heterojen/boş olabilir.
-    # replay_key çözülmüş olsa da pencere eşleşmesi boş dönerse video bazlı fallback yap.
-    if not out and vid and wd:
-        for r in rows:
-            row = dict(r)
-            out.append(row)
-            if len(out) >= limit:
-                break
     return out
-
-def compute_video_offset(ts: int, first_ts: int) -> int:
-    try:
-        tsv = int(ts or 0)
-        fsv = int(first_ts or 0)
-    except Exception:
-        return 0
-    if tsv <= 0 or fsv <= 0:
-        return 0
-    return max(0, tsv - fsv)
-
-def _build_profile_lookup(authors: List[str], columns_sql: str) -> Dict[str, Dict]:
-    """
-    author eşleşmesini @ işareti / büyük-küçük harf / boşluk farklarından bağımsız yap.
-    Dönen map hem normalize_handle_token(author) hem raw-lower key'i içerir.
-    """
-    raw_keys = sorted({str(a or "").strip().casefold() for a in authors if str(a or "").strip()})
-    norm_keys = sorted({normalize_handle_token(a) for a in authors if normalize_handle_token(a)})
-    if not raw_keys and not norm_keys:
-        return {}
-
-    q_raw = ",".join(["?"] * len(raw_keys)) if raw_keys else "''"
-    q_norm = ",".join(["?"] * len(norm_keys)) if norm_keys else "''"
-    params: List[str] = []
-    params.extend(raw_keys)
-    params.extend(norm_keys)
-
-    sql = (
-        f"SELECT author, {columns_sql} FROM user_profiles "
-        f"WHERE LOWER(TRIM(author)) IN ({q_raw}) "
-        f"   OR LOWER(TRIM(LTRIM(author,'@'))) IN ({q_norm})"
-    )
-    rows = db_exec(sql, tuple(params), fetch="all") or []
-
-    pmap: Dict[str, Dict] = {}
-    for p in rows:
-        entry = dict(p)
-        a = str(entry.get("author","") or "")
-        pmap[a.strip().casefold()] = entry
-        pmap[normalize_handle_token(a)] = entry
-    return pmap
 
 def upsert_message(msg: dict):
     sql = ("INSERT OR IGNORE INTO messages"
@@ -5967,14 +5918,9 @@ socket.on('login_result', d=>{
   $('#login-msg').html(d.success?'✅ Giriş başarılı: '+d.email:'❌ Giriş başarısız');
 });
 socket.on('replay_index_updated', d=>{
-  invalidateReplayCaches();
-  if($('#tab-replay-flow').hasClass('act')){
-    loadReplayWindows(true);
-    status('🔄 Replay pencereleri güncellendi', 2000);
-  }
-});
-socket.on('replay_updated', d=>{
-  invalidateReplayCaches();
+  _replayWindowsCache = null;
+  _replayMsgCache = {};
+  _replayFlagCache = {};
   if($('#tab-replay-flow').hasClass('act')){
     loadReplayWindows(true);
     status('🔄 Replay pencereleri güncellendi', 2000);
@@ -7065,19 +7011,14 @@ def create_app():
             video_id=vid, window_date=win_date, replay_key=replay_key, limit=10000
         )
         rows = []
-        profile_map = _build_profile_lookup(
-            [m.get("author","") for m in base_rows],
-            "threat_level, threat_score, hate_score, antisemitism_score,"
-            " bot_prob, game_strategy, ollama_action, hmm_state, is_banned"
-        )
-
-        ts_vals = [int(m.get("timestamp") or 0) for m in base_rows if int(m.get("timestamp") or 0) > 0]
-        first_ts = min(ts_vals) if ts_vals else 0
         for m in base_rows:
-            a_raw = (m.get("author","") or "").strip()
-            prof = profile_map.get(normalize_handle_token(a_raw), {}) or \
-                   profile_map.get(a_raw.casefold(), {})
-            item = {
+            prof = db_exec(
+                "SELECT threat_level, threat_score, hate_score, antisemitism_score,"
+                " bot_prob, game_strategy, ollama_action, hmm_state, is_banned"
+                " FROM user_profiles WHERE author=?",
+                ((m.get("author") or "").strip(),), fetch="one"
+            ) or {}
+            rows.append({
                 "id": m.get("id",""),
                 "author": m.get("author",""),
                 "message": m.get("message",""),
@@ -7086,11 +7027,7 @@ def create_app():
                 "video_date": m.get("video_date",""),
                 "source_type": m.get("source_type",""),
                 **prof,
-            }
-            item["watch_seconds"] = compute_video_offset(item.get("timestamp",0), first_ts)
-            if item.get("video_id"):
-                item["watch_url"] = f"https://www.youtube.com/watch?v={item['video_id']}&t={item['watch_seconds']}s"
-            rows.append(item)
+            })
 
         # Her mesaj için sözlük tabanlı hızlı kontrol
         flagged: Dict[str, dict] = {}
@@ -7190,7 +7127,7 @@ def create_app():
             "SELECT replay_key, video_id, title, video_date_norm, replay_status,"
             " message_count, min_ts, max_ts, source_type"
             " FROM replay_index"
-            " ORDER BY max_ts DESC, last_refreshed DESC, COALESCE(video_date_norm,'') DESC"
+            " ORDER BY COALESCE(video_date_norm,'') DESC, max_ts DESC, last_refreshed DESC"
             " LIMIT ?",
             (lim,), fetch="all"
         ) or []
@@ -7242,22 +7179,12 @@ def create_app():
             video_id=vid, window_date=win_date, replay_key=replay_key, limit=lim
         )
         rows = []
-        profile_map = _build_profile_lookup(
-            [m.get("author","") for m in base_rows],
-            "threat_level, threat_score"
-        )
-
-        ts_vals = [int(m.get("timestamp") or 0) for m in base_rows if int(m.get("timestamp") or 0) > 0]
-        first_ts = min(ts_vals) if ts_vals else 0
         for m in base_rows:
-            a_raw = (m.get("author","") or "").strip()
-            prof = profile_map.get(normalize_handle_token(a_raw), {}) or \
-                   profile_map.get(a_raw.casefold(), {})
-            item = {**m, **prof}
-            item["watch_seconds"] = compute_video_offset(item.get("timestamp",0), first_ts)
-            if item.get("video_id"):
-                item["yt_link"] = f"https://www.youtube.com/watch?v={item['video_id']}&t={item['watch_seconds']}s"
-            rows.append(item)
+            prof = db_exec(
+                "SELECT threat_level, threat_score FROM user_profiles WHERE author=?",
+                ((m.get("author") or "").strip(),), fetch="one"
+            ) or {}
+            rows.append({**m, **prof})
         out = _attach_watch_links(rows)
         return jsonify({"messages": out, "total": len(out)})
 
@@ -7453,11 +7380,6 @@ def create_app():
                             "replay_key": r.get("replay_key",""),
                             "status": r.get("status","ok"),
                         }, namespace="/ws")
-                        _sio.emit("replay_updated", {
-                            "video_id": r.get("video_id",""),
-                            "replay_key": r.get("replay_key",""),
-                            "status": r.get("status","ok"),
-                        }, namespace="/ws")
                     except: pass
             except Exception as e:
                 log.error("NLP replay chat API hatası: %s", e)
@@ -7516,11 +7438,6 @@ def create_app():
                     try:
                         _sio.emit("nlp_supplement_done", result, namespace="/ws")
                         _sio.emit("replay_index_updated", {
-                            "video_id": result.get("video_id",""),
-                            "replay_key": result.get("replay_key",""),
-                            "status": result.get("status","ok"),
-                        }, namespace="/ws")
-                        _sio.emit("replay_updated", {
                             "video_id": result.get("video_id",""),
                             "replay_key": result.get("replay_key",""),
                             "status": result.get("status","ok"),
