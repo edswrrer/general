@@ -4365,6 +4365,16 @@ function unbanUser(a){
 }
 
 function parseBulkBanHandles(text){
+  const raw = String(text||'').normalize('NFKC');
+  const parts = [];
+  const regex = /@+([^,\n;]+)/g;
+  let m;
+  while((m = regex.exec(raw)) !== null){
+    parts.push(m[1]);
+  }
+  if(!parts.length){
+    parts.push(...raw.split(/[,\n;]+/));
+  }
   return Array.from(new Set(
     String(text||'')
       .split(/[\s,;]+/)
@@ -5347,7 +5357,14 @@ def create_app():
         if isinstance(raw_handles, list):
             handles = [str(h or "").strip() for h in raw_handles]
         else:
-            handles = re.split(r"[\s,;]+", str(raw_handles or ""))
+            raw_text = unicodedata.normalize("NFKC", str(raw_handles or ""))
+            # Öncelik: @ ile başlayan kalıpları virgül/noktalı virgül/yeni satıra kadar yakala.
+            # Böylece "DrOpen YourEyes" gibi boşluk içeren adlar parçalanmaz.
+            at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
+            if at_parts:
+                handles = at_parts
+            else:
+                handles = [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
 
         clean = []
         seen = set()
