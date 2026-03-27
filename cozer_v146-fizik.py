@@ -4376,8 +4376,9 @@ function parseBulkBanHandles(text){
     parts.push(...raw.split(/[,\n;]+/));
   }
   return Array.from(new Set(
-    parts
-      .map(t=>String(t||'').trim().replace(/^@+/,'').toLowerCase())
+    String(text||'')
+      .split(/[\s,;]+/)
+      .map(t=>t.normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
       .filter(Boolean)
   ));
 }
