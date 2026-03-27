@@ -4585,6 +4585,7 @@ function showUser(author){
       <button class="btn ghost" onclick="closeModal();nav('messages',document.querySelector('.ni:nth-child(3)'));$('#mauth').val('${author}');debMsg()">💬 Mesajlar</button>
       <button class="btn ghost" onclick="toggleAccountDetail('${author}')">🔎 Hesap Detayı</button>
       <button class="btn red" onclick="banUser('${author}')">🚫 Yasakla</button>
+      <button class="btn ghost" style="margin-left:auto" onclick="exportUserMessagesPdf('${author}')">🧾 Mesajlar PDF</button>
     </div>`;
     h+=`<div id="modal-account-detail" class="card" style="margin-top:10px;display:none"></div>`;
     $('#modal-body').html(h);
@@ -4632,6 +4633,40 @@ function toggleAccountDetail(author){
       </a>`
     ).show();
   });
+}
+
+function exportUserMessagesPdf(author){
+  if(!author){ alert('Kullanıcı adı bulunamadı.'); return; }
+  const safeAuthor = String(author).trim();
+  if(!safeAuthor){ alert('Kullanıcı adı bulunamadı.'); return; }
+
+  status('@'+safeAuthor+' için mesaj PDF oluşturuluyor...');
+  fetch('/api/user/' + encodeURIComponent(safeAuthor) + '/messages/pdf')
+    .then(async res => {
+      if(!res.ok){
+        let err = 'PDF üretilemedi';
+        try{
+          const body = await res.json();
+          if(body && (body.error || body.message)) err = body.error || body.message;
+        }catch(_){}
+        throw new Error(err);
+      }
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = safeAuthor.replace(/[^a-zA-Z0-9._-]/g, '_') + '_messages.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      status('✅ @'+safeAuthor+' mesaj PDF indirildi', 4000);
+    })
+    .catch(err => {
+      status('❌ '+(err?.message || 'PDF üretilemedi'), 5000);
+    });
 }
 
 function _openYTChannel(author){
@@ -6039,6 +6074,102 @@ def create_app():
     def api_user_messages(author):
         rows=get_user_msgs(author)
         return jsonify({"messages":rows[:200]})
+
+    @app.route("/api/user/<path:author>/messages/pdf")
+    def api_user_messages_pdf(author):
+        try:
+            from io import BytesIO
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import mm
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+            from xml.sax.saxutils import escape as xml_escape
+            from flask import send_file
+
+            rows = get_user_msgs(author)
+            if not rows:
+                return jsonify({"error": "Bu kullanıcı için mesaj bulunamadı"}), 404
+
+            buf = BytesIO()
+            doc = SimpleDocTemplate(
+                buf, pagesize=A4,
+                leftMargin=14 * mm, rightMargin=14 * mm,
+                topMargin=12 * mm, bottomMargin=12 * mm
+            )
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                "UserMessageTitle",
+                parent=styles["Heading2"],
+                fontSize=15,
+                leading=18,
+                textColor=colors.HexColor("#111827"),
+                spaceAfter=8,
+            )
+            meta_style = ParagraphStyle(
+                "UserMessageMeta",
+                parent=styles["Normal"],
+                fontSize=9,
+                textColor=colors.HexColor("#4b5563"),
+                leading=12
+            )
+            cell_style = ParagraphStyle(
+                "UserMessageCell",
+                parent=styles["Normal"],
+                fontSize=8.7,
+                leading=10.5,
+            )
+
+            safe_author = xml_escape(str(author))
+            story = [
+                Paragraph(f"Kullanıcı Mesaj Raporu — @{safe_author}", title_style),
+                Paragraph(f"Oluşturulma: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} · Toplam mesaj: {len(rows)}", meta_style),
+                Spacer(1, 8),
+            ]
+
+            data = [[
+                Paragraph("<b>Tarih-Saat</b>", cell_style),
+                Paragraph("<b>Video</b>", cell_style),
+                Paragraph("<b>Mesaj</b>", cell_style),
+            ]]
+            for r in rows:
+                ts = xml_escape(str((r.get("timestamp") or "")).strip() or "—")
+                vid = xml_escape(str((r.get("title") or "")).strip() or "—")
+                msg = xml_escape(str((r.get("message") or "")).strip() or "—")
+                data.append([
+                    Paragraph(ts, cell_style),
+                    Paragraph(vid, cell_style),
+                    Paragraph(msg, cell_style),
+                ])
+
+            tbl = Table(data, colWidths=[34 * mm, 50 * mm, 92 * mm], repeatRows=1)
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                ("ALIGN", (1, 0), (1, -1), "LEFT"),
+                ("ALIGN", (2, 0), (2, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+
+            story.append(tbl)
+            doc.build(story)
+            buf.seek(0)
+
+            safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(author).strip()) or "user"
+            fname = f"{safe_name}_messages_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            return send_file(buf, mimetype="application/pdf",
+                             as_attachment=True, download_name=fname)
+        except Exception as e:
+            log.exception("User messages PDF generation error (%s): %s", author, e)
+            return jsonify({"error": str(e)}), 500
 
     # ── Messages ──────────────────────────────────────────────────────────────
     @app.route("/api/messages")
