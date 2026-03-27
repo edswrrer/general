@@ -547,6 +547,20 @@ def init_db():
             chat_count INTEGER DEFAULT 0,
             scraped_at INTEGER DEFAULT (strftime('%s','now'))
         );
+        CREATE TABLE IF NOT EXISTS replay_index(
+            replay_key TEXT PRIMARY KEY,
+            video_id TEXT,
+            title TEXT,
+            video_date_raw TEXT,
+            video_date_norm TEXT,
+            source_type TEXT,
+            replay_status TEXT DEFAULT 'ready',
+            has_replay_chat INTEGER DEFAULT 0,
+            message_count INTEGER DEFAULT 0,
+            min_ts INTEGER DEFAULT 0,
+            max_ts INTEGER DEFAULT 0,
+            last_refreshed INTEGER DEFAULT (strftime('%s','now'))
+        );
         CREATE TABLE IF NOT EXISTS rag_cache(
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_hash TEXT UNIQUE,
             query TEXT, response TEXT,
@@ -556,6 +570,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_msg_video  ON messages(video_id);
         CREATE INDEX IF NOT EXISTS idx_msg_ts     ON messages(timestamp);
         CREATE INDEX IF NOT EXISTS idx_msg_src    ON messages(source_type);
+        CREATE INDEX IF NOT EXISTS idx_replay_video_date ON replay_index(video_id, video_date_norm);
         CREATE INDEX IF NOT EXISTS idx_up_threat  ON user_profiles(threat_level);
         CREATE INDEX IF NOT EXISTS idx_up_threat_score ON user_profiles(threat_score DESC);
         CREATE INDEX IF NOT EXISTS idx_link_ab    ON identity_links(user_a,user_b);
@@ -631,6 +646,168 @@ def db_exec(sql: str, params: tuple = (), fetch: str = None):
                 rows = cur.fetchall()
                 return [dict(r) for r in rows]
             return cur.lastrowid
+
+def _canonical_video_id(video_id: str) -> str:
+    raw = (video_id or "").strip()
+    if not raw:
+        return ""
+    extracted = _extract_video_id_from_url(raw)
+    if extracted:
+        return extracted
+    clean = re.sub(r"[^A-Za-z0-9_-]", "", raw)
+    return clean[:11] if len(clean) >= 11 else clean
+
+def _normalize_video_date(video_date: str, ts_hint: int = 0) -> str:
+    raw = str(video_date or "").strip()
+    if raw:
+        only_digits = re.sub(r"\D", "", raw)
+        if len(only_digits) >= 8:
+            y, m, d = int(only_digits[:4]), int(only_digits[4:6]), int(only_digits[6:8])
+            try:
+                return datetime(y, m, d, tzinfo=timezone.utc).strftime("%Y%m%d")
+            except Exception:
+                pass
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y"):
+            try:
+                return datetime.strptime(raw[:10], fmt).strftime("%Y%m%d")
+            except Exception:
+                pass
+    try:
+        ts = int(ts_hint or 0)
+        if ts >= 1_000_000_000:
+            return datetime.utcfromtimestamp(ts).strftime("%Y%m%d")
+    except Exception:
+        pass
+    return ""
+
+def _build_replay_key(video_id: str, video_date: str, ts_hint: int = 0) -> Tuple[str, str, str]:
+    cid = _canonical_video_id(video_id)
+    nd = _normalize_video_date(video_date, ts_hint=ts_hint)
+    raw_key = f"{cid}|{nd}" if cid or nd else ""
+    replay_key = hashlib.sha1(raw_key.encode("utf-8")).hexdigest() if raw_key else ""
+    return replay_key, cid, nd
+
+def _upsert_replay_index(video_id: str, title: str = "", video_date: str = "",
+                         source_type: str = "replay_chat", replay_status: str = "ready") -> Dict:
+    replay_key, vid_norm, date_norm = _build_replay_key(video_id, video_date)
+    if not vid_norm:
+        return {"replay_key": "", "video_id": "", "video_date_norm": "", "message_count": 0}
+
+    rows = db_exec(
+        "SELECT title, video_date, timestamp FROM messages WHERE deleted=0 AND video_id=?",
+        (vid_norm,), fetch="all"
+    ) or []
+    selected = []
+    for r in rows:
+        row_date_norm = _normalize_video_date(r.get("video_date",""), ts_hint=int(r.get("timestamp") or 0))
+        if date_norm and row_date_norm and row_date_norm != date_norm:
+            continue
+        selected.append(r)
+
+    if not date_norm and selected:
+        max_ts = max(int(r.get("timestamp") or 0) for r in selected)
+        date_norm = _normalize_video_date("", ts_hint=max_ts)
+        replay_key, vid_norm, date_norm = _build_replay_key(vid_norm, date_norm, ts_hint=max_ts)
+
+    msg_count = len(selected)
+    ts_vals = [int(r.get("timestamp") or 0) for r in selected if int(r.get("timestamp") or 0) > 0]
+    min_ts = min(ts_vals) if ts_vals else 0
+    max_ts = max(ts_vals) if ts_vals else 0
+    has_chat = 1 if msg_count > 0 else 0
+    final_title = (title or "").strip() or (selected[-1].get("title","").strip() if selected else "")
+    status = replay_status if replay_status else ("ready" if has_chat else "empty")
+    if not replay_key:
+        replay_key, _, _ = _build_replay_key(vid_norm, date_norm, ts_hint=max_ts)
+    if not replay_key:
+        return {"replay_key": "", "video_id": vid_norm, "video_date_norm": date_norm, "message_count": msg_count}
+
+    db_exec(
+        "INSERT INTO replay_index"
+        " (replay_key, video_id, title, video_date_raw, video_date_norm, source_type,"
+        " replay_status, has_replay_chat, message_count, min_ts, max_ts, last_refreshed)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,strftime('%s','now'))"
+        " ON CONFLICT(replay_key) DO UPDATE SET"
+        " title=excluded.title,"
+        " video_date_raw=excluded.video_date_raw,"
+        " video_date_norm=excluded.video_date_norm,"
+        " source_type=excluded.source_type,"
+        " replay_status=excluded.replay_status,"
+        " has_replay_chat=excluded.has_replay_chat,"
+        " message_count=excluded.message_count,"
+        " min_ts=excluded.min_ts,"
+        " max_ts=excluded.max_ts,"
+        " last_refreshed=strftime('%s','now')",
+        (replay_key, vid_norm, final_title, (video_date or "").strip(), date_norm,
+         source_type, status, has_chat, msg_count, min_ts, max_ts)
+    )
+    return {
+        "replay_key": replay_key,
+        "video_id": vid_norm,
+        "video_date_norm": date_norm,
+        "message_count": msg_count,
+        "status": status,
+    }
+
+def _resolve_window_identity(video_id: str = "", window_date: str = "", replay_key: str = "") -> Dict:
+    rk = (replay_key or "").strip()
+    if rk:
+        row = db_exec(
+            "SELECT replay_key, video_id, video_date_norm, title FROM replay_index WHERE replay_key=?",
+            (rk,), fetch="one"
+        ) or {}
+        if row:
+            return {
+                "replay_key": row.get("replay_key",""),
+                "video_id": (row.get("video_id") or "").strip(),
+                "window_date": (row.get("video_date_norm") or "").strip(),
+                "title": (row.get("title") or "").strip(),
+            }
+    vid = _canonical_video_id(video_id)
+    wd = _normalize_video_date(window_date)
+    if not rk and (vid or wd):
+        rk, vid, wd = _build_replay_key(vid, wd)
+    return {"replay_key": rk, "video_id": vid, "window_date": wd, "title": ""}
+
+def _load_replay_window_messages(video_id: str = "", window_date: str = "",
+                                 replay_key: str = "", limit: int = 5000) -> List[Dict]:
+    ident = _resolve_window_identity(video_id=video_id, window_date=window_date, replay_key=replay_key)
+    vid = ident.get("video_id","")
+    wd = ident.get("window_date","")
+    if not vid and not wd:
+        return []
+
+    # Önce video_id ile daralt, yoksa genel fallback.
+    if vid:
+        rows = db_exec(
+            "SELECT * FROM messages WHERE deleted=0 AND video_id=? ORDER BY timestamp ASC",
+            (vid,), fetch="all"
+        ) or []
+    else:
+        rows = db_exec(
+            "SELECT * FROM messages WHERE deleted=0 ORDER BY timestamp ASC LIMIT ?",
+            (max(limit * 4, 1000),), fetch="all"
+        ) or []
+
+    out = []
+    for r in rows:
+        row = dict(r)
+        row_norm = _normalize_video_date(row.get("video_date",""), ts_hint=int(row.get("timestamp") or 0))
+        if wd and row_norm != wd:
+            continue
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return out
+
+def compute_video_offset(ts: int, first_ts: int) -> int:
+    try:
+        tsv = int(ts or 0)
+        fsv = int(first_ts or 0)
+    except Exception:
+        return 0
+    if tsv <= 0 or fsv <= 0:
+        return 0
+    return max(0, tsv - fsv)
 
 def upsert_message(msg: dict):
     sql = ("INSERT OR IGNORE INTO messages"
@@ -2045,6 +2222,14 @@ def _scrape_one_video(vid: Dict, idx: int, total_count: int,
         " VALUES(?,?,?,?,?,?)",
         (vid_id, title, date, comment_src, len(comments), len(chats))
     )
+    if is_stream_source:
+        _upsert_replay_index(
+            video_id=vid_id,
+            title=title,
+            video_date=_normalize_video_date(date),
+            source_type="stream",
+            replay_status="ready" if len(chats) > 0 else "empty",
+        )
     log.info("[%d/%d] %s — yorum:%d chat:%d (toplam kaydedilen:%d)",
              idx, total_count, vid_id, len(comments), len(chats), saved)
     return len(comments), len(chats), saved
@@ -2266,13 +2451,32 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
     6. Konuları çıkar
     7. Tehditkar kullanıcıları DB'ye kaydet
     """
-    log.info("🤖 NLP Replay Chat Analizi başlıyor: %s", video_id)
+    vid_norm = _canonical_video_id(video_id)
+    meta = _fetch_video_metadata(vid_norm) if vid_norm else {}
+    title = (title or "").strip() or (meta.get("title") or "").strip()
+    date_norm = _normalize_video_date(video_date or meta.get("video_date",""), ts_hint=int(meta.get("timestamp") or 0))
+
+    log.info("🤖 NLP Replay Chat Analizi başlıyor: %s", vid_norm or video_id)
 
     # 1. Ham veriyi çek
-    raw_msgs = ytdlp_live_chat(video_id, title, video_date)
+    raw_msgs = ytdlp_live_chat(vid_norm or video_id, title, date_norm)
     if not raw_msgs:
-        log.warning("NLP analiz: %s için sohbet verisi bulunamadı", video_id)
-        return {"video_id":video_id,"status":"no_data","messages":0}
+        replay_row = _upsert_replay_index(
+            video_id=vid_norm or video_id,
+            title=title,
+            video_date=date_norm or video_date,
+            source_type="replay_chat",
+            replay_status="empty",
+        )
+        log.warning("NLP analiz: %s için sohbet verisi bulunamadı", vid_norm or video_id)
+        return {
+            "video_id": vid_norm or video_id,
+            "title": title,
+            "video_date": date_norm or video_date,
+            "status": "no_data",
+            "messages": 0,
+            "replay_key": replay_row.get("replay_key",""),
+        }
 
     # 2. NLP filtresi
     if filter_spam:
@@ -2329,8 +2533,9 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
                  len(authors_in_video), len(analyzed))
 
     result = {
-        "video_id":          video_id,
+        "video_id":          vid_norm or video_id,
         "title":             title,
+        "video_date":        date_norm or video_date,
         "status":            "ok",
         "raw_messages":      len(raw_msgs),
         "filtered_messages": len(filtered),
@@ -2341,8 +2546,16 @@ def nlp_auto_replay_chat(video_id: str, title: str = "", video_date: str = "",
         "topics":            topics,
         "threat_users":      analyzed[:20],
     }
+    replay_row = _upsert_replay_index(
+        video_id=vid_norm or video_id,
+        title=title,
+        video_date=date_norm or video_date,
+        source_type="replay_chat",
+        replay_status="ready",
+    )
+    result["replay_key"] = replay_row.get("replay_key","")
     log.info("✅ NLP Replay Chat tamamlandı: %s → %d mesaj, %d tehdit",
-             video_id, saved, len(coordinated))
+             vid_norm or video_id, saved, len(coordinated))
     return result
 
 def nlp_full_channel_scan(channel_url: str = None,
@@ -2513,6 +2726,7 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
       5. scraped_videos kaydını güncelle (source_type='replay_supplement')
       6. Sonuç raporunu döndür
     """
+    video_id = _canonical_video_id(video_id)
     log.info("📌 NLP Takviye başlıyor: %s", video_id)
 
     # ── 1. Boş chat slotları ─────────────────────────────────────────────────
@@ -2527,7 +2741,7 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
 
     # ── 2. Video metadata ─────────────────────────────────────────────────────
     vid_meta  = _fetch_video_metadata(video_id)
-    vid_date  = vid_meta.get("video_date", "")
+    vid_date  = _normalize_video_date(vid_meta.get("video_date", ""), ts_hint=int(vid_meta.get("timestamp") or 0))
     vid_title = title or vid_meta.get("title", "") or video_id
 
     log.info("Takviye video: id=%s  tarih=%s  başlık=%s",
@@ -2590,6 +2804,14 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
         (video_id, vid_title, vid_date, msgs_saved)
     )
 
+    replay_row = _upsert_replay_index(
+        video_id=video_id,
+        title=vid_title,
+        video_date=vid_date,
+        source_type="replay_supplement",
+        replay_status="ready" if msgs_saved > 0 else "empty",
+    )
+
     # Eşleşen slotun chat_count'unu da güncelle
     if matched_slot and msgs_saved > 0:
         db_exec(
@@ -2608,6 +2830,7 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
         "delta_days":        match_delta_days,
         "empty_slots_found": len(empty_slots),
         "status":            "ok" if msgs_saved > 0 else "no_chat_data",
+        "replay_key":        replay_row.get("replay_key",""),
         "nlp_result":        nlp_result,
     }
     log.info("✅ NLP Takviye tamamlandı: %s → %d mesaj kaydedildi, slot=%s",
@@ -4461,6 +4684,12 @@ const CLR = {G:'#2ECC71',Y:'#F1C40F',O:'#E67E22',R:'#E74C3C',C:'#8B0000',B:'#349
 const LVL2CLS = {GREEN:'G',YELLOW:'Y',ORANGE:'O',RED:'R',CRIMSON:'C',BLUE:'B',PURPLE:'P'};
 let msgTimer = null, gsTimer = null;
 
+function invalidateReplayCaches(){
+  _replayWindowsCache = null;
+  _replayMsgCache = {};
+  _replayFlagCache = {};
+}
+
 function status(msg,ms=0){ $('#status').text(msg); if(ms) setTimeout(()=>$('#status').text(''),ms); }
 function nav(name,el){
   $('.tab').removeClass('act'); $('#tab-'+name).addClass('act');
@@ -4469,7 +4698,7 @@ function nav(name,el){
   else if(name==='users') loadUsers(1);
   else if(name==='ban-correlation') initBannedCorrelationTab();
   else if(name==='messages') loadMsgs(1);
-  else if(name==='replay-flow') loadReplayWindows(false);  // önbellekli
+  else if(name==='replay-flow') { invalidateReplayCaches(); loadReplayWindows(false); }
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
   else if(name==='settings') loadSysStatus();
@@ -5105,7 +5334,7 @@ function fmtReplayDate(raw){
 }
 
 // önbellek anahtarı üretici
-function _replayCacheKey(win){ return (win.video_id||'')+'|'+(win.window_date||''); }
+function _replayCacheKey(win){ return (win.replay_key||'')+'|'+(win.video_id||'')+'|'+(win.window_date||''); }
 
 /**
  * loadReplayWindows(force)
@@ -5120,9 +5349,7 @@ function loadReplayWindows(force){
     return;
   }
   if(force){
-    _replayWindowsCache = null;
-    _replayMsgCache = {};
-    _replayFlagCache = {};
+    invalidateReplayCaches();
   }
   status('Sohbet pencereleri yükleniyor...');
   $.get('/api/replay/windows',{limit:120},function(d){
@@ -5136,6 +5363,7 @@ function loadReplayWindows(force){
       _replayWindowsCache.forEach(function(win){
         const ckey = _replayCacheKey(win);
         $.get('/api/replay/flagged-users',{
+          replay_key:  win.replay_key  || '',
           video_id:    win.video_id    || '',
           window_date: win.window_date || '',
           threshold:   0.30
@@ -5171,8 +5399,12 @@ function _renderReplayWindows(windows){
     const dur = (w.min_timestamp&&w.max_timestamp)
       ? `${new Date(w.min_timestamp*1000).toLocaleTimeString()} - ${new Date(w.max_timestamp*1000).toLocaleTimeString()}`
       : '-';
+    const st = (w.replay_status||'ready');
+    const stBadge = st==='empty'
+      ? '<span class="badge bg-Y" style="font-size:9px">CHAT YOK</span>'
+      : '<span class="badge bg-G" style="font-size:9px">REPLAY</span>';
     h += `<div class="msg" style="cursor:pointer" onclick="openReplayWindow(${i})">
-      <div class="meta"><b>${dt}</b><span style="margin-left:auto;color:var(--tx2)">${w.message_count||0} mesaj</span></div>
+      <div class="meta"><b>${dt}</b>${stBadge}<span style="margin-left:auto;color:var(--tx2)">${w.message_count||0} mesaj</span></div>
       <div class="txt">${hl(ttl,'')}</div>
       <div class="meta" style="margin-top:4px"><span style="font-size:10px;color:var(--tx2)">${w.video_id||'-'}</span><span style="font-size:10px;color:var(--tx2)">${dur}</span></div>
     </div>`;
@@ -5199,6 +5431,7 @@ function openReplayWindow(idx){
     $('#replay-stream').html('<span class="spin"></span>');
     $('#replay-meta').text('Sohbet yükleniyor...');
     $.get('/api/replay/window/messages',{
+      replay_key: win.replay_key || '',
       video_id: win.video_id || '',
       window_date: win.window_date || '',
       limit: 5000
@@ -5217,6 +5450,7 @@ function openReplayWindow(idx){
       cb(_replayFlagCache[ckey]); return;
     }
     $.get('/api/replay/flagged-users',{
+      replay_key: win.replay_key || '',
       video_id: win.video_id || '',
       window_date: win.window_date || '',
       threshold: 0.30
@@ -5692,6 +5926,20 @@ socket.on('scrape_done', d=>{
 });
 socket.on('login_result', d=>{
   $('#login-msg').html(d.success?'✅ Giriş başarılı: '+d.email:'❌ Giriş başarısız');
+});
+socket.on('replay_index_updated', d=>{
+  invalidateReplayCaches();
+  if($('#tab-replay-flow').hasClass('act')){
+    loadReplayWindows(true);
+    status('🔄 Replay pencereleri güncellendi', 2000);
+  }
+});
+socket.on('replay_updated', d=>{
+  invalidateReplayCaches();
+  if($('#tab-replay-flow').hasClass('act')){
+    loadReplayWindows(true);
+    status('🔄 Replay pencereleri güncellendi', 2000);
+  }
 });
 
 // ── YARDIMCI ──────────────────────────────────────────────────────────────────
@@ -6772,28 +7020,43 @@ def create_app():
         """
         vid      = (request.args.get("video_id","") or "").strip()
         win_date = (request.args.get("window_date","") or "").strip()
+        replay_key = (request.args.get("replay_key","") or "").strip()
         threshold = float(request.args.get("threshold","0.35"))
+        base_rows = _load_replay_window_messages(
+            video_id=vid, window_date=win_date, replay_key=replay_key, limit=10000
+        )
+        rows = []
+        profile_map: Dict[str, Dict] = {}
+        auth_norms = sorted({(m.get("author","") or "").strip().lower() for m in base_rows if (m.get("author","") or "").strip()})
+        if auth_norms:
+            qmarks = ",".join(["?"] * len(auth_norms))
+            prof_rows = db_exec(
+                "SELECT author, threat_level, threat_score, hate_score, antisemitism_score,"
+                " bot_prob, game_strategy, ollama_action, hmm_state, is_banned"
+                " FROM user_profiles WHERE LOWER(TRIM(author)) IN (" + qmarks + ")",
+                tuple(auth_norms), fetch="all"
+            ) or []
+            for p in prof_rows:
+                profile_map[(p.get("author","") or "").strip().lower()] = dict(p)
 
-        wh: List[str] = ["m.deleted=0"]
-        prms: List    = []
-        if vid:
-            wh.append("m.video_id=?"); prms.append(vid)
-        if win_date:
-            wh.append("COALESCE(m.video_date,'')=?"); prms.append(win_date)
-        where_sql = " AND ".join(wh)
-
-        rows = db_exec(
-            "SELECT m.id, m.author, m.message, m.timestamp,"
-            " m.video_id, m.video_date, m.source_type,"
-            " up.threat_level, up.threat_score, up.hate_score,"
-            " up.antisemitism_score, up.bot_prob, up.game_strategy,"
-            " up.ollama_action, up.hmm_state, up.is_banned"
-            " FROM messages m"
-            " LEFT JOIN user_profiles up ON m.author=up.author"
-            f" WHERE {where_sql}"
-            " ORDER BY m.timestamp ASC",
-            tuple(prms), fetch="all"
-        ) or []
+        ts_vals = [int(m.get("timestamp") or 0) for m in base_rows if int(m.get("timestamp") or 0) > 0]
+        first_ts = min(ts_vals) if ts_vals else 0
+        for m in base_rows:
+            prof = profile_map.get((m.get("author","") or "").strip().lower(), {})
+            item = {
+                "id": m.get("id",""),
+                "author": m.get("author",""),
+                "message": m.get("message",""),
+                "timestamp": m.get("timestamp",0),
+                "video_id": m.get("video_id",""),
+                "video_date": m.get("video_date",""),
+                "source_type": m.get("source_type",""),
+                **prof,
+            }
+            item["watch_seconds"] = compute_video_offset(item.get("timestamp",0), first_ts)
+            if item.get("video_id"):
+                item["watch_url"] = f"https://www.youtube.com/watch?v={item['video_id']}&t={item['watch_seconds']}s"
+            rows.append(item)
 
         # Her mesaj için sözlük tabanlı hızlı kontrol
         flagged: Dict[str, dict] = {}
@@ -6847,6 +7110,8 @@ def create_app():
                 "kw_scores":   {k:v for k,v in kw.items() if k not in ("matched_terms","overall")},
                 "matched_terms": matched,
                 "threat_level": t_lvl,
+                "watch_url": r.get("watch_url",""),
+                "watch_seconds": int(r.get("watch_seconds") or 0),
             }
 
             if author not in flagged:
@@ -6888,51 +7153,82 @@ def create_app():
     def api_replay_windows():
         lim = max(10, min(300, int(request.args.get("limit", 120))))
         rows = db_exec(
-            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
-            " MAX(title) AS title, COUNT(*) AS message_count,"
-            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
-            " FROM messages WHERE deleted=0"
-            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
-            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+            "SELECT replay_key, video_id, title, video_date_norm, replay_status,"
+            " message_count, min_ts, max_ts, source_type"
+            " FROM replay_index"
+            " ORDER BY max_ts DESC, last_refreshed DESC, COALESCE(video_date_norm,'') DESC"
             " LIMIT ?",
             (lim,), fetch="all"
         ) or []
-        out = []
-        for r in rows:
-            video_date = (r.get("video_date") or "").strip()
-            if (not video_date) and int(r.get("max_ts") or 0) > 0:
-                video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
-            out.append({
-                "window_date": video_date,
-                "video_id": (r.get("video_id") or "").strip(),
-                "title": (r.get("title") or "").strip(),
-                "message_count": int(r.get("message_count") or 0),
-                "min_timestamp": int(r.get("min_ts") or 0),
-                "max_timestamp": int(r.get("max_ts") or 0),
-            })
+        out = [{
+            "replay_key": (r.get("replay_key") or "").strip(),
+            "window_date": (r.get("video_date_norm") or "").strip(),
+            "video_id": (r.get("video_id") or "").strip(),
+            "title": (r.get("title") or "").strip(),
+            "message_count": int(r.get("message_count") or 0),
+            "min_timestamp": int(r.get("min_ts") or 0),
+            "max_timestamp": int(r.get("max_ts") or 0),
+            "replay_status": (r.get("replay_status") or "ready").strip(),
+            "source_type": (r.get("source_type") or "").strip(),
+        } for r in rows]
+
+        # Eski DB için fallback (replay_index henüz dolmadıysa)
+        if not out:
+            old_rows = db_exec(
+                "SELECT COALESCE(video_id,'') AS video_id, MAX(title) AS title,"
+                " COUNT(*) AS message_count, MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
+                " FROM messages WHERE deleted=0 GROUP BY COALESCE(video_id,'') LIMIT ?",
+                (lim,), fetch="all"
+            ) or []
+            for r in old_rows:
+                v_id = (r.get("video_id") or "").strip()
+                max_ts = int(r.get("max_ts") or 0)
+                window_date = _normalize_video_date("", ts_hint=max_ts)
+                replay_key, _, _ = _build_replay_key(v_id, window_date, ts_hint=max_ts)
+                out.append({
+                    "replay_key": replay_key,
+                    "window_date": window_date,
+                    "video_id": v_id,
+                    "title": (r.get("title") or "").strip(),
+                    "message_count": int(r.get("message_count") or 0),
+                    "min_timestamp": int(r.get("min_ts") or 0),
+                    "max_timestamp": max_ts,
+                    "replay_status": "ready",
+                    "source_type": "legacy",
+                })
         return jsonify({"windows": out})
 
     @app.route("/api/replay/window/messages")
     def api_replay_window_messages():
         vid = (request.args.get("video_id", "") or "").strip()
         win_date = (request.args.get("window_date", "") or "").strip()
+        replay_key = (request.args.get("replay_key", "") or "").strip()
         lim = max(50, min(5000, int(request.args.get("limit", 5000))))
-        wh = ["m.deleted=0"]
-        prms: List = []
-        if vid:
-            wh.append("m.video_id=?")
-            prms.append(vid)
-        if win_date:
-            wh.append("COALESCE(m.video_date,'')=?")
-            prms.append(win_date)
-        where_sql = " AND ".join(wh)
-        rows = db_exec(
-            "SELECT m.*, up.threat_level, up.threat_score"
-            " FROM messages m LEFT JOIN user_profiles up ON m.author=up.author"
-            f" WHERE {where_sql}"
-            " ORDER BY m.timestamp ASC LIMIT ?",
-            tuple(prms) + (lim,), fetch="all"
-        ) or []
+        base_rows = _load_replay_window_messages(
+            video_id=vid, window_date=win_date, replay_key=replay_key, limit=lim
+        )
+        rows = []
+        profile_map: Dict[str, Dict] = {}
+        auth_norms = sorted({(m.get("author","") or "").strip().lower() for m in base_rows if (m.get("author","") or "").strip()})
+        if auth_norms:
+            qmarks = ",".join(["?"] * len(auth_norms))
+            prof_rows = db_exec(
+                "SELECT author, threat_level, threat_score"
+                " FROM user_profiles WHERE LOWER(TRIM(author)) IN (" + qmarks + ")",
+                tuple(auth_norms), fetch="all"
+            ) or []
+            for p in prof_rows:
+                profile_map[(p.get("author","") or "").strip().lower()] = dict(p)
+
+        ts_vals = [int(m.get("timestamp") or 0) for m in base_rows if int(m.get("timestamp") or 0) > 0]
+        first_ts = min(ts_vals) if ts_vals else 0
+        for m in base_rows:
+            prof = profile_map.get((m.get("author","") or "").strip().lower(), {})
+            item = {**m, **prof}
+            item["watch_seconds"] = compute_video_offset(item.get("timestamp",0), first_ts)
+            if item.get("video_id"):
+                item["yt_link"] = f"https://www.youtube.com/watch?v={item['video_id']}&t={item['watch_seconds']}s"
+            rows.append(item)
         out = _attach_watch_links(rows)
         return jsonify({"messages": out, "total": len(out)})
 
@@ -7121,7 +7417,18 @@ def create_app():
                                           auto_analyze=auto_an,
                                           filter_spam=filter_sp)
                 if _sio:
-                    try: _sio.emit("nlp_replay_done", r, namespace="/ws")
+                    try:
+                        _sio.emit("nlp_replay_done", r, namespace="/ws")
+                        _sio.emit("replay_index_updated", {
+                            "video_id": r.get("video_id",""),
+                            "replay_key": r.get("replay_key",""),
+                            "status": r.get("status","ok"),
+                        }, namespace="/ws")
+                        _sio.emit("replay_updated", {
+                            "video_id": r.get("video_id",""),
+                            "replay_key": r.get("replay_key",""),
+                            "status": r.get("status","ok"),
+                        }, namespace="/ws")
                     except: pass
             except Exception as e:
                 log.error("NLP replay chat API hatası: %s", e)
@@ -7179,6 +7486,16 @@ def create_app():
                 if _sio:
                     try:
                         _sio.emit("nlp_supplement_done", result, namespace="/ws")
+                        _sio.emit("replay_index_updated", {
+                            "video_id": result.get("video_id",""),
+                            "replay_key": result.get("replay_key",""),
+                            "status": result.get("status","ok"),
+                        }, namespace="/ws")
+                        _sio.emit("replay_updated", {
+                            "video_id": result.get("video_id",""),
+                            "replay_key": result.get("replay_key",""),
+                            "status": result.get("status","ok"),
+                        }, namespace="/ws")
                     except Exception:
                         pass
             except Exception as e:
