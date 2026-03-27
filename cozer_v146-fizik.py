@@ -5169,7 +5169,7 @@ function loadReplayWindows(force){
 function recomputeReplayFlow(){
   status('⏳ Sohbet akışı modüllerle yeniden hesaplanıyor...');
   pauseReplay();
-  $.get('/api/replay/recompute-all',{limit:0,threshold:0.30},function(d){
+  $.get('/api/replay/recompute-all',{limit:120,threshold:0.30},function(d){
     const windows = d.windows || [];
     _replayWindowsCache = windows;
     _replayMsgCache = {};
@@ -5989,35 +5989,23 @@ def create_app():
 
         return out
 
-    def _fetch_replay_windows(limit: int = 0) -> List[dict]:
-        lim = int(limit or 0)
-        base_sql = (
-            "SELECT b.window_date, b.video_id,"
-            " COALESCE(b.msg_title, MAX(NULLIF(sv.title,'')), '') AS title,"
-            " b.message_count, b.min_ts, b.max_ts"
-            " FROM ("
-            "   SELECT COALESCE(video_date,'') AS window_date,"
-            "          COALESCE(video_id,'') AS video_id,"
-            "          MAX(NULLIF(title,'')) AS msg_title,"
-            "          COUNT(*) AS message_count,"
-            "          MIN(timestamp) AS min_ts,"
-            "          MAX(timestamp) AS max_ts"
-            "   FROM messages"
-            "   WHERE deleted=0"
-            "   GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
-            " ) b"
-            " LEFT JOIN scraped_videos sv ON sv.video_id = b.video_id"
-            " GROUP BY b.window_date, b.video_id, b.msg_title, b.message_count, b.min_ts, b.max_ts"
-            " ORDER BY CASE WHEN b.window_date='' THEN 1 ELSE 0 END,"
-            " b.window_date DESC, b.max_ts DESC"
-        )
-        if lim > 0:
-            rows = db_exec(base_sql + " LIMIT ?", (lim,), fetch="all") or []
-        else:
-            rows = db_exec(base_sql, fetch="all") or []
+    def _fetch_replay_windows(limit: int = 120) -> List[dict]:
+        lim = max(10, min(300, int(limit or 120)))
+        rows = db_exec(
+            "SELECT COALESCE(m.video_date,'') AS video_date, COALESCE(m.video_id,'') AS video_id,"
+            " COALESCE(MAX(NULLIF(m.title,'')), MAX(NULLIF(sv.title,'')), '') AS title,"
+            " COUNT(*) AS message_count, MIN(m.timestamp) AS min_ts, MAX(m.timestamp) AS max_ts"
+            " FROM messages m"
+            " LEFT JOIN scraped_videos sv ON sv.video_id = m.video_id"
+            " WHERE m.deleted=0"
+            " GROUP BY COALESCE(m.video_date,''), COALESCE(m.video_id,'')"
+            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+            " LIMIT ?",
+            (lim,), fetch="all"
+        ) or []
         out = []
         for r in rows:
-            video_date = (r.get("window_date") or "").strip()
+            video_date = (r.get("video_date") or "").strip()
             if (not video_date) and int(r.get("max_ts") or 0) > 0:
                 video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
             out.append({
@@ -6031,8 +6019,7 @@ def create_app():
         return out
 
     def _collect_flagged_users(video_id: str = "", window_date: str = "",
-                               threshold: float = 0.35,
-                               author: str = "") -> List[dict]:
+                               threshold: float = 0.35) -> List[dict]:
         vid = (video_id or "").strip()
         win_date = (window_date or "").strip()
         th = max(0.0, min(1.0, float(threshold or 0.35)))
@@ -6043,8 +6030,6 @@ def create_app():
             wh.append("m.video_id=?"); prms.append(vid)
         if win_date:
             wh.append("COALESCE(m.video_date,'')=?"); prms.append(win_date)
-        if (author or "").strip():
-            wh.append("m.author=?"); prms.append((author or "").strip())
         where_sql = " AND ".join(wh)
 
         rows = db_exec(
@@ -6953,19 +6938,17 @@ def create_app():
         win_date = (request.args.get("window_date","") or "").strip()
         author = (request.args.get("author","") or "").strip()
         threshold = float(request.args.get("threshold","0.35"))
-        out = _collect_flagged_users(
-            video_id=vid, window_date=win_date, threshold=threshold, author=author
-        )
+        out = _collect_flagged_users(video_id=vid, window_date=win_date, threshold=threshold)
         return jsonify({"flagged_users": out, "total": len(out)})
 
     @app.route("/api/replay/windows")
     def api_replay_windows():
-        lim = int(request.args.get("limit", 0))
+        lim = int(request.args.get("limit", 120))
         return jsonify({"windows": _fetch_replay_windows(lim)})
 
     @app.route("/api/replay/recompute-all")
     def api_replay_recompute_all():
-        lim = int(request.args.get("limit", 0))
+        lim = int(request.args.get("limit", 120))
         threshold = float(request.args.get("threshold", "0.30"))
         windows = _fetch_replay_windows(lim)
         flagged_map: Dict[str, List[dict]] = {}
