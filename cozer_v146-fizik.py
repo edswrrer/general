@@ -550,21 +550,101 @@ def normalize_handle_token(name: str) -> str:
     Toplu ban girdileri için dayanıklı kullanıcı adı normalizasyonu:
     - Unicode NFKC normalize
     - baştaki tek/çoklu @ kaldır
-    - trim + casefold
+    - fazla boşlukları tek boşluğa indir
+    - sonda kalan ayraç karakterlerini temizle
+    - casefold
     """
     t = unicodedata.normalize("NFKC", str(name or "")).strip()
     t = re.sub(r"^@+", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"[-_.]+$", "", t)
+    t = t.strip(" \t\r\n\"'`“”’‘")
     return t.casefold().strip()
+
+def strip_accents(text: str) -> str:
+    d = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in d if not unicodedata.combining(ch))
+
+def canonicalize_author_token(name: str) -> str:
+    t = normalize_handle_token(name)
+    if not t:
+        return ""
+    t = strip_accents(t)
+    t = re.sub(r"[^a-z0-9_\-.\s]", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+def author_signatures(name: str) -> List[str]:
+    """
+    Farklı yazım biçimlerini tek imza kümesine indirger.
+    Hard-code kullanıcı listesi yok; tamamen format-tabanlıdır.
+    """
+    base = canonicalize_author_token(name)
+    if not base:
+        return []
+    compact = re.sub(r"\s+", "", base)
+    sep_less = re.sub(r"[\s._-]+", "", base)
+    forms = {
+        base,
+        compact,
+        sep_less,
+        f"@{base}",
+        f"@{compact}",
+        f"@{sep_less}",
+    }
+    return [f for f in forms if f]
 
 def candidate_author_forms(name: str) -> List[str]:
     """
     Veritabanında author alanı bazen '@user', bazen 'user' tutulabiliyor.
     Eşleşme için her iki formu da üret.
     """
-    base = normalize_handle_token(name)
-    if not base:
-        return []
-    return [base, f"@{base}"]
+    return author_signatures(name)
+
+def parse_bulk_handles(raw_handles: Any) -> List[str]:
+    """
+    Toplu ban için kullanıcı adı listesi ayrıştırıcı.
+    Tek bir metin veya liste alır; @ işaretli kalıpları önceliklendirir ve
+    boşluk içeren kullanıcı adlarını korur.
+    """
+    def _split_from_text(text: str) -> List[str]:
+        raw_text = unicodedata.normalize("NFKC", str(text or ""))
+        out: List[str] = []
+        for frag in re.split(r"[,\n;]+", raw_text):
+            frag = frag.strip()
+            if not frag:
+                continue
+            at_handles = [p.strip() for p in re.findall(r"@{1,2}([^\s@,;\n]+)", frag)]
+            if at_handles:
+                out.extend(at_handles)
+                full = re.sub(r"^@+", "", frag).strip()
+                if full:
+                    out.append(full)
+            else:
+                out.append(frag)
+        return out
+
+    tokens: List[str] = []
+    if isinstance(raw_handles, list):
+        for item in raw_handles:
+            tokens.extend(_split_from_text(str(item or "")))
+    else:
+        tokens = _split_from_text(str(raw_handles or ""))
+
+    clean: List[str] = []
+    seen = set()
+    seen_raw = set()
+    for token in tokens:
+        raw_key = unicodedata.normalize("NFKC", str(token or "")).strip().casefold()
+        if not raw_key or raw_key in seen_raw:
+            continue
+        seen_raw.add(raw_key)
+        author = normalize_handle_token(token)
+        if not author or author in seen:
+            continue
+        seen.add(author)
+        clean.append(author)
+    return clean
 
 def msg_id(video_id: str, author: str, ts: int, message: str) -> str:
     return hashlib.sha256(f"{video_id}|{author}|{ts}|{message}".encode()).hexdigest()
@@ -4367,18 +4447,22 @@ function unbanUser(a){
 function parseBulkBanHandles(text){
   const raw = String(text||'').normalize('NFKC');
   const parts = [];
-  const regex = /@+([^,\n;]+)/g;
-  let m;
-  while((m = regex.exec(raw)) !== null){
-    parts.push(m[1]);
-  }
-  if(!parts.length){
-    parts.push(...raw.split(/[,\n;]+/));
-  }
+  raw.split(/[,\n;]+/).forEach(chunk=>{
+    const frag = String(chunk||'').trim();
+    if(!frag) return;
+    const handleMatches = [...frag.matchAll(/@{1,2}([^\s@,;\n]+)/g)].map(m=>m[1]);
+    if(handleMatches.length){
+      parts.push(...handleMatches);
+      const full = frag.replace(/^@+/, '').trim();
+      if(full) parts.push(full);
+    }else{
+      parts.push(frag);
+    }
+  });
   return Array.from(new Set(
-    String(text||'')
-      .split(/[\s,;]+/)
-      .map(t=>t.normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
+    parts
+      .map(t=>String(t||'').normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
+      .map(t=>t.replace(/\s+/g,' ').replace(/[-_.]+$/g,'').trim())
       .filter(Boolean)
   ));
 }
@@ -5352,30 +5436,7 @@ def create_app():
         raw_handles = payload.get("handles")
         if raw_handles is None:
             raw_handles = request.form.get("handles", "")
-
-        handles: List[str] = []
-        if isinstance(raw_handles, list):
-            handles = [str(h or "").strip() for h in raw_handles]
-        else:
-            raw_text = unicodedata.normalize("NFKC", str(raw_handles or ""))
-            # Öncelik: @ ile başlayan kalıpları virgül/noktalı virgül/yeni satıra kadar yakala.
-            # Böylece "DrOpen YourEyes" gibi boşluk içeren adlar parçalanmaz.
-            at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
-            if at_parts:
-                handles = at_parts
-            else:
-                handles = [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
-
-        clean = []
-        seen = set()
-        for h in handles:
-            author = normalize_handle_token(h)
-            if not author:
-                continue
-            if author in seen:
-                continue
-            seen.add(author)
-            clean.append(author)
+        clean = parse_bulk_handles(raw_handles)
 
         if not clean:
             return jsonify({
@@ -5391,29 +5452,57 @@ def create_app():
             expanded.extend(candidate_author_forms(a))
         expanded = list(dict.fromkeys(expanded))
 
-        found_rows = db_exec(
-            f"SELECT author FROM user_profiles WHERE lower(trim(author)) IN ({','.join(['?']*len(expanded))})",
-            tuple(expanded),
-            fetch="all"
-        ) or []
-        found_keys = set()
+        found_rows = []
+        if expanded:
+            found_rows = db_exec(
+                f"SELECT author FROM user_profiles WHERE lower(trim(author)) IN ({','.join(['?']*len(expanded))})",
+                tuple(expanded),
+                fetch="all"
+            ) or []
+
         found_authors = []
+        found_keys = set()
         for r in found_rows:
             raw_author = str(r.get("author") or "").strip()
             if not raw_author:
                 continue
             canon = normalize_handle_token(raw_author)
-            if not canon:
-                continue
-            found_keys.add(canon)
+            if canon:
+                found_keys.add(canon)
             found_authors.append(raw_author)
+
+        # Fallback: canonical signature eşleşmesi (accent/space/separator varyasyonları).
+        # Özellikle display-name vs handle karışımında kapsama oranını artırır.
+        missing = [a for a in clean if a not in found_keys]
+        if missing:
+            all_rows = db_exec(
+                "SELECT author FROM user_profiles WHERE author IS NOT NULL AND trim(author)<>''",
+                fetch="all"
+            ) or []
+            sig_to_authors: Dict[str, set] = defaultdict(set)
+            for r in all_rows:
+                raw_author = str(r.get("author") or "").strip()
+                if not raw_author:
+                    continue
+                for sig in author_signatures(raw_author):
+                    sig_to_authors[sig].add(raw_author)
+
+            for token in missing:
+                sigs = author_signatures(token)
+                matched = set()
+                for sig in sigs:
+                    matched.update(sig_to_authors.get(sig, set()))
+                if matched:
+                    found_keys.add(normalize_handle_token(token))
+                    found_authors.extend(sorted(matched))
+
         found_authors = list(dict.fromkeys(found_authors))
         not_found = [a for a in clean if a not in found_keys]
 
         if found_authors:
             db_exec(
-                f"UPDATE user_profiles SET game_strategy='BAN' WHERE lower(trim(author)) IN ({','.join(['?']*len(found_authors))})",
-                tuple(a.casefold() for a in found_authors)
+                f"UPDATE user_profiles SET game_strategy='BAN' WHERE author IN ({','.join(['?']*len(found_authors))})",
+                tuple(found_authors)
             )
 
         return jsonify({
