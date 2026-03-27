@@ -4344,29 +4344,12 @@ function unbanUser(a){
 }
 
 function parseBulkBanHandles(text){
-  const src = String(text||'').replace(/\r/g,' ');
-  const picked = src.match(/@{1,2}[^@]+/g) || [];
-  let items = [];
-  if(picked.length){
-    items = picked.map(x=>x.trim());
-  } else {
-    items = src.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
-  }
-  const out = [];
-  const seen = new Set();
-  items.forEach(raw=>{
-    const cleaned = raw
-      .replace(/^@+/, '')
-      .replace(/[;,]+$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if(!cleaned) return;
-    const k = cleaned.toLocaleLowerCase('tr-TR');
-    if(seen.has(k)) return;
-    seen.add(k);
-    out.push(cleaned);
-  });
-  return out;
+  return Array.from(new Set(
+    String(text||'')
+      .split(/[\s,;]+/)
+      .map(t=>t.trim().replace(/^@+/,''))
+      .filter(Boolean)
+  ));
 }
 
 function bulkBanUsers(){
@@ -4390,7 +4373,6 @@ function bulkBanUsers(){
     let msg = `✅ ${moved} kullanıcı Banlananlar sekmesine taşındı.`;
     if(missing) msg += ` ${missing} kullanıcı bulunamadı.`;
     status(msg, 5000);
-    $('#bulk-ban-input').val('');
     setUsersView('banned');
   }).fail(function(xhr){
     const err = (xhr.responseJSON||{}).error || 'Toplu ban işlemi başarısız';
@@ -5323,34 +5305,21 @@ def create_app():
 
     @app.route("/api/users/ban-bulk", methods=["POST"])
     def api_ban_bulk():
-        def _normalize_author(value: Any) -> str:
-            s = unicodedata.normalize("NFKC", str(value or ""))
-            s = s.replace("\r", " ")
-            s = re.sub(r"\s+", " ", s).strip()
-            s = re.sub(r"^@+", "", s)
-            s = re.sub(r"[;,]+$", "", s).strip()
-            return s
-
-        def _parse_handles(raw: Any) -> List[str]:
-            if isinstance(raw, list):
-                return [_normalize_author(x) for x in raw if _normalize_author(x)]
-
-            txt = str(raw or "").replace("\r", " ")
-            found = re.findall(r"@{1,2}[^@]+", txt, flags=re.MULTILINE)
-            if found:
-                return [_normalize_author(x) for x in found if _normalize_author(x)]
-            return [_normalize_author(x) for x in re.split(r"[\n,;]+", txt) if _normalize_author(x)]
-
         payload = request.get_json(silent=True) or {}
         raw_handles = payload.get("handles")
         if raw_handles is None:
             raw_handles = request.form.get("handles", "")
 
-        handles: List[str] = _parse_handles(raw_handles)
+        handles: List[str] = []
+        if isinstance(raw_handles, list):
+            handles = [str(h or "").strip() for h in raw_handles]
+        else:
+            handles = re.split(r"[\s,;]+", str(raw_handles or ""))
+
         clean = []
         seen = set()
         for h in handles:
-            author = _normalize_author(h)
+            author = re.sub(r"^@+", "", str(h or "").strip())
             if not author:
                 continue
             key = author.casefold()
@@ -5362,35 +5331,19 @@ def create_app():
         if not clean:
             return jsonify({"error":"Geçerli kullanıcı listesi bulunamadı"}), 400
 
-        prof_rows = db_exec("SELECT author FROM user_profiles", fetch="all") or []
-        profile_map: Dict[str, str] = {}
-        for r in prof_rows:
-            raw_author = str(r.get("author") or "").strip()
-            if not raw_author:
-                continue
-            n = _normalize_author(raw_author)
-            if n:
-                profile_map.setdefault(n.casefold(), raw_author)
-            if raw_author.startswith("@"):
-                n2 = _normalize_author(raw_author[1:])
-                if n2:
-                    profile_map.setdefault(n2.casefold(), raw_author)
-
-        found_authors = []
-        not_found = []
-        for author in clean:
-            hit = profile_map.get(author.casefold())
-            if hit:
-                found_authors.append(hit)
-            else:
-                not_found.append(author)
-
-        found_authors = list(dict.fromkeys(found_authors))
+        found_rows = db_exec(
+            f"SELECT author FROM user_profiles WHERE lower(author) IN ({','.join(['?']*len(clean))})",
+            tuple(a.casefold() for a in clean),
+            fetch="all"
+        ) or []
+        found_map = {str(r["author"]).casefold(): str(r["author"]) for r in found_rows if r.get("author")}
+        found_authors = [found_map[a.casefold()] for a in clean if a.casefold() in found_map]
+        not_found = [a for a in clean if a.casefold() not in found_map]
 
         if found_authors:
             db_exec(
-                f"UPDATE user_profiles SET game_strategy='BAN' WHERE author IN ({','.join(['?']*len(found_authors))})",
-                tuple(found_authors)
+                f"UPDATE user_profiles SET game_strategy='BAN' WHERE lower(author) IN ({','.join(['?']*len(found_authors))})",
+                tuple(a.casefold() for a in found_authors)
             )
 
         return jsonify({
