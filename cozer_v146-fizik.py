@@ -45,7 +45,7 @@ import shutil
 import sqlite3, subprocess, argparse, random, traceback, base64
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from collections import Counter, deque
+from collections import Counter, deque, defaultdict
 from typing import Optional, List, Dict, Tuple, Any
 from unittest import result
 import warnings
