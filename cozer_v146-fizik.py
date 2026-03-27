@@ -467,16 +467,26 @@ PAYOFF = np.array([
 # § 3 — VERİTABANI (SQLite + ChromaDB)
 # ═══════════════════════════════════════════════════════════════════════════════
 _db_lock = threading.Lock()
+_replay_session_lock = threading.Lock()
+_replay_sessions: Dict[str, Dict[str, Any]] = {}
 
-def _get_conn() -> sqlite3.Connection:
-    c = sqlite3.connect(CFG["db_path"], check_same_thread=False, timeout=30)
+def _normalize_db_path(db_path: str) -> str:
+    p = Path(str(db_path or CFG["db_path"])).expanduser()
+    if not p.is_absolute():
+        p = (Path.cwd() / p).resolve()
+    return str(p)
+
+def _get_conn(db_path: Optional[str] = None) -> sqlite3.Connection:
+    c = sqlite3.connect(_normalize_db_path(db_path or CFG["db_path"]), check_same_thread=False, timeout=30)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=NORMAL")
     return c
 
-def init_db():
-    with _get_conn() as c:
+def init_db(db_path: Optional[str] = None):
+    target_db = _normalize_db_path(db_path or CFG["db_path"])
+    Path(target_db).parent.mkdir(parents=True, exist_ok=True)
+    with _get_conn(target_db) as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS messages(
             id TEXT PRIMARY KEY, video_id TEXT NOT NULL, title TEXT,
@@ -562,7 +572,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ds_conf    ON dataset(confirmed,created_at);
         """)
         _migrate_legacy_schema(c)
-    log.info("✅ SQLite hazır: %s", CFG["db_path"])
+    log.info("✅ SQLite hazır: %s", target_db)
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set:
     try:
@@ -631,6 +641,55 @@ def db_exec(sql: str, params: tuple = (), fetch: str = None):
                 rows = cur.fetchall()
                 return [dict(r) for r in rows]
             return cur.lastrowid
+
+def db_exec_on(db_path: str, sql: str, params: tuple = (), fetch: str = None):
+    with _db_lock:
+        with _get_conn(db_path) as c:
+            cur = c.execute(sql, params)
+            if fetch == "one":
+                row = cur.fetchone()
+                return dict(row) if row else None
+            if fetch == "all":
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+            return cur.lastrowid
+
+def _bootstrap_replay_sessions():
+    default_db = _normalize_db_path(CFG.get("db_path", "yt_guardian.db"))
+    with _replay_session_lock:
+        if "default" not in _replay_sessions:
+            _replay_sessions["default"] = {
+                "session_id": "default",
+                "name": "Default Session",
+                "db_path": default_db,
+                "created_at": int(time.time()),
+                "last_used_at": int(time.time()),
+            }
+
+def _resolve_replay_db(session_id: str = "", db_path: str = "") -> Tuple[str, str]:
+    _bootstrap_replay_sessions()
+    if db_path:
+        db_norm = _normalize_db_path(db_path)
+        init_db(db_norm)
+        sid = (session_id or f"manual_{hashlib.sha1(db_norm.encode()).hexdigest()[:8]}").strip() or "default"
+        with _replay_session_lock:
+            _replay_sessions[sid] = {
+                "session_id": sid,
+                "name": sid,
+                "db_path": db_norm,
+                "created_at": int(time.time()),
+                "last_used_at": int(time.time()),
+            }
+        return sid, db_norm
+
+    sid = (session_id or "default").strip()
+    with _replay_session_lock:
+        sess = _replay_sessions.get(sid) or _replay_sessions.get("default")
+        if not sess:
+            _bootstrap_replay_sessions()
+            sess = _replay_sessions["default"]
+        sess["last_used_at"] = int(time.time())
+        return str(sess["session_id"]), str(sess["db_path"])
 
 def upsert_message(msg: dict):
     sql = ("INSERT OR IGNORE INTO messages"
@@ -4254,7 +4313,10 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <div class="card" style="margin-bottom:0">
       <h3>🗓️ Tarihe Göre Sohbet Pencereleri</h3>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <button class="btn red" onclick="loadReplayWindows(true)" title="Önbelleği temizle ve API'den yeniden hesapla">🔄 Yeniden Hesapla</button>
+        <select class="inp" id="replay-session-select" style="min-width:170px" onchange="switchReplaySession(this.value)"></select>
+        <input class="inp" id="replay-session-db" placeholder="DB yolu (oturuma özel)" style="min-width:220px;flex:1">
+        <button class="btn ghost" onclick="createReplaySession()">🆕 Oturum Aç</button>
+        <button class="btn red" onclick="loadReplayWindows(true)" title="Seçili oturum DB'sinde eksik akışları da tamamlayarak yeniden hesapla">🔄 Yeniden Hesapla</button>
         <span id="replay-window-count" style="font-size:11px;color:var(--tx2)"></span>
         <span style="font-size:10px;color:var(--tx2);margin-left:auto" title="Önbellekten yüklenir, sadece 'Yeniden Hesapla' ile güncellenir">💾 önbellekli</span>
       </div>
@@ -4453,6 +4515,7 @@ let threatChart = null, graphLoaded = false;
 let usersView = 'all';
 let usersSort = {key:'threat_score', dir:'desc'};
 let replayState = {windows:[],active:null,messages:[],idx:0,timer:null,playing:false,speed:1,lastTs:0};
+let replaySession = {id:'default', db_path:'', sessions:[]};
 // Sohbet Akışı önbelleği — yalnızca "Yeniden Hesapla" düğmesiyle temizlenir
 let _replayWindowsCache = null;   // windows listesi
 let _replayMsgCache = {};         // video_id+date → messages[]
@@ -4469,7 +4532,7 @@ function nav(name,el){
   else if(name==='users') loadUsers(1);
   else if(name==='ban-correlation') initBannedCorrelationTab();
   else if(name==='messages') loadMsgs(1);
-  else if(name==='replay-flow') loadReplayWindows(false);  // önbellekli
+  else if(name==='replay-flow') loadReplaySessions(()=>loadReplayWindows(false));  // oturum + önbellekli
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
   else if(name==='settings') loadSysStatus();
@@ -5104,6 +5167,67 @@ function fmtReplayDate(raw){
   return raw;
 }
 
+function replaySessionParams(extra={}){
+  const p = Object.assign({}, extra||{});
+  if(replaySession.id) p.session_id = replaySession.id;
+  if(replaySession.db_path) p.db_path = replaySession.db_path;
+  return p;
+}
+
+function loadReplaySessions(cb){
+  $.get('/api/replay/sessions', function(d){
+    replaySession.sessions = d.sessions || [];
+    if(!replaySession.sessions.length){
+      replaySession.sessions = [{session_id:'default',name:'Default Session',db_path:''}];
+    }
+    if(!replaySession.id || !replaySession.sessions.find(s=>s.session_id===replaySession.id)){
+      replaySession.id = replaySession.sessions[0].session_id || 'default';
+    }
+    const cur = replaySession.sessions.find(s=>s.session_id===replaySession.id) || replaySession.sessions[0];
+    replaySession.db_path = (cur && cur.db_path) ? cur.db_path : replaySession.db_path;
+    const opts = replaySession.sessions.map(s=>{
+      const nm = (s.name || s.session_id || 'Session');
+      return `<option value="${s.session_id}" ${s.session_id===replaySession.id?'selected':''}>${nm}</option>`;
+    }).join('');
+    $('#replay-session-select').html(opts);
+    $('#replay-session-db').val(replaySession.db_path || '');
+    if(cb) cb();
+  });
+}
+
+function switchReplaySession(sessionId){
+  const picked = (replaySession.sessions||[]).find(s=>s.session_id===sessionId);
+  replaySession.id = sessionId || 'default';
+  replaySession.db_path = picked ? (picked.db_path||'') : ($('#replay-session-db').val()||'');
+  _replayWindowsCache = null;
+  _replayMsgCache = {};
+  _replayFlagCache = {};
+  loadReplayWindows(false);
+}
+
+function createReplaySession(){
+  const dbPath = ($('#replay-session-db').val() || '').trim();
+  const suggested = 'Oturum ' + new Date().toLocaleTimeString();
+  const name = (prompt('Yeni oturum adı:', suggested) || '').trim();
+  if(!name){ status('❌ Oturum adı gerekli',2500); return; }
+  status('Oturum oluşturuluyor...');
+  $.ajax({
+    url:'/api/replay/sessions',
+    method:'POST',
+    contentType:'application/json',
+    data:JSON.stringify({name:name, db_path:dbPath})
+  }).done(function(d){
+    replaySession.id = d.session_id || replaySession.id;
+    loadReplaySessions(function(){
+      status('✅ Yeni oturum hazır', 2500);
+      loadReplayWindows(true);
+    });
+  }).fail(function(xhr){
+    const err = (xhr.responseJSON||{}).error || 'Oturum açılamadı';
+    status('❌ '+err, 3500);
+  });
+}
+
 // önbellek anahtarı üretici
 function _replayCacheKey(win){ return (win.video_id||'')+'|'+(win.window_date||''); }
 
@@ -5125,7 +5249,30 @@ function loadReplayWindows(force){
     _replayFlagCache = {};
   }
   status('Sohbet pencereleri yükleniyor...');
-  $.get('/api/replay/windows',{limit:120},function(d){
+  if($('#replay-session-db').length){
+    replaySession.db_path = ($('#replay-session-db').val() || '').trim();
+  }
+  if(force){
+    $.ajax({
+      url:'/api/replay/recalculate',
+      method:'POST',
+      contentType:'application/json',
+      data:JSON.stringify(replaySessionParams({limit:120, auto_fill_missing:1}))
+    }).done(function(d){
+      _replayWindowsCache = d.windows || [];
+      _renderReplayWindows(_replayWindowsCache);
+      const rc = Number(d.recalculated_count || 0);
+      if(rc > 0){
+        status('✅ Yeniden hesaplandı · '+rc+' eksik video akışı tamamlandı', 5000);
+      } else {
+        status('✅ Yeniden hesaplandı · eksik akış bulunamadı', 3000);
+      }
+    }).fail(function(){
+      status('❌ Yeniden hesaplama başarısız', 4000);
+    });
+    return;
+  }
+  $.get('/api/replay/windows', replaySessionParams({limit:120}), function(d){
     _replayWindowsCache = d.windows || [];
     _renderReplayWindows(_replayWindowsCache);
     if(force && _replayWindowsCache.length){
@@ -5138,7 +5285,9 @@ function loadReplayWindows(force){
         $.get('/api/replay/flagged-users',{
           video_id:    win.video_id    || '',
           window_date: win.window_date || '',
-          threshold:   0.30
+          threshold:   0.30,
+          session_id:  replaySession.id || 'default',
+          db_path:     replaySession.db_path || ''
         },function(fd){
           _replayFlagCache[ckey] = fd.flagged_users || [];
           done++;
@@ -5162,10 +5311,16 @@ function loadReplayWindows(force){
 }
 
 function _renderReplayWindows(windows){
-  replayState.windows = windows;
-  $('#replay-window-count').text(`${windows.length} pencere`);
+  const sorted = (windows||[]).slice().sort((a,b)=>{
+    const at = String(a.title||a.video_id||'').toLocaleLowerCase('tr');
+    const bt = String(b.title||b.video_id||'').toLocaleLowerCase('tr');
+    if(at && bt && at !== bt) return at.localeCompare(bt,'tr');
+    return String(b.window_date||'').localeCompare(String(a.window_date||''));
+  });
+  replayState.windows = sorted;
+  $('#replay-window-count').text(`${sorted.length} pencere`);
   let h='';
-  windows.forEach((w,i)=>{
+  sorted.forEach((w,i)=>{
     const dt = fmtReplayDate(w.window_date||'');
     const ttl = (w.title || w.video_id || 'Video').substring(0,55);
     const dur = (w.min_timestamp&&w.max_timestamp)
@@ -5201,7 +5356,9 @@ function openReplayWindow(idx){
     $.get('/api/replay/window/messages',{
       video_id: win.video_id || '',
       window_date: win.window_date || '',
-      limit: 5000
+      limit: 5000,
+      session_id: replaySession.id || 'default',
+      db_path: replaySession.db_path || ''
     },function(d){
       _replayMsgCache[ckey] = d.messages || [];
       cb(_replayMsgCache[ckey]);
@@ -5219,7 +5376,9 @@ function openReplayWindow(idx){
     $.get('/api/replay/flagged-users',{
       video_id: win.video_id || '',
       window_date: win.window_date || '',
-      threshold: 0.30
+      threshold: 0.30,
+      session_id: replaySession.id || 'default',
+      db_path: replaySession.db_path || ''
     },function(d){
       _replayFlagCache[ckey] = d.flagged_users || [];
       cb(_replayFlagCache[ckey]);
@@ -6772,6 +6931,9 @@ def create_app():
         """
         vid      = (request.args.get("video_id","") or "").strip()
         win_date = (request.args.get("window_date","") or "").strip()
+        replay_session_id = (request.args.get("session_id","") or "").strip()
+        replay_db_path    = (request.args.get("db_path","") or "").strip()
+        sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
         threshold = float(request.args.get("threshold","0.35"))
 
         wh: List[str] = ["m.deleted=0"]
@@ -6782,7 +6944,8 @@ def create_app():
             wh.append("COALESCE(m.video_date,'')=?"); prms.append(win_date)
         where_sql = " AND ".join(wh)
 
-        rows = db_exec(
+        rows = db_exec_on(
+            target_db,
             "SELECT m.id, m.author, m.message, m.timestamp,"
             " m.video_id, m.video_date, m.source_type,"
             " up.threat_level, up.threat_score, up.hate_score,"
@@ -6882,12 +7045,156 @@ def create_app():
             x["antisemitism_score"]
         ), reverse=True)
 
-        return jsonify({"flagged_users": out, "total": len(out)})
+        return jsonify({"flagged_users": out, "total": len(out), "session_id": sid, "db_path": target_db})
+
+    @app.route("/api/replay/sessions", methods=["GET", "POST"])
+    def api_replay_sessions():
+        _bootstrap_replay_sessions()
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or request.form or {}
+            name = str(payload.get("name", "") or "").strip() or f"Session {datetime.utcnow().strftime('%H:%M:%S')}"
+            db_path = str(payload.get("db_path", "") or CFG.get("db_path", "yt_guardian.db")).strip()
+            db_norm = _normalize_db_path(db_path)
+            init_db(db_norm)
+            sid = hashlib.sha1(f"{name}|{db_norm}|{time.time()}".encode()).hexdigest()[:12]
+            now = int(time.time())
+            with _replay_session_lock:
+                _replay_sessions[sid] = {
+                    "session_id": sid,
+                    "name": name,
+                    "db_path": db_norm,
+                    "created_at": now,
+                    "last_used_at": now,
+                }
+                sessions = sorted(_replay_sessions.values(), key=lambda x: x.get("created_at", 0), reverse=True)
+            return jsonify({"ok": True, "session_id": sid, "sessions": sessions})
+
+        with _replay_session_lock:
+            sessions = sorted(_replay_sessions.values(), key=lambda x: x.get("created_at", 0), reverse=True)
+        return jsonify({"sessions": sessions, "active_session": "default"})
+
+    @app.route("/api/replay/recalculate", methods=["POST"])
+    def api_replay_recalculate():
+        """
+        Yeniden hesapla:
+        1) Seçili oturum DB'sindeki mevcut video pencerelerini çıkarır.
+        2) Eksik akış (mesajı olmayan) scraped_videos kayıtları için aynı NLP replay modülünü çalıştırır.
+        3) Güncel pencere listesini isim/tarih bazında döndürür.
+        """
+        payload = request.get_json(silent=True) or request.form or {}
+        replay_session_id = str(payload.get("session_id", "") or "").strip()
+        replay_db_path = str(payload.get("db_path", "") or "").strip()
+        sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
+        limit = max(10, min(500, int(payload.get("limit", 200) or 200)))
+        auto_fill_missing = str(payload.get("auto_fill_missing", "1")).lower() not in ("0", "false", "no")
+
+        recalculated = []
+        if auto_fill_missing:
+            missing = db_exec_on(
+                target_db,
+                "SELECT sv.video_id, COALESCE(sv.title,'') AS title, COALESCE(sv.video_date,'') AS video_date,"
+                " COALESCE(sv.source_type,'') AS source_type"
+                " FROM scraped_videos sv"
+                " LEFT JOIN ("
+                "   SELECT video_id, COUNT(*) AS cnt FROM messages WHERE deleted=0 GROUP BY video_id"
+                " ) m ON m.video_id = sv.video_id"
+                " WHERE COALESCE(m.cnt,0)=0"
+                " ORDER BY COALESCE(sv.video_date,''), sv.video_id"
+                " LIMIT ?",
+                (limit,), fetch="all"
+            ) or []
+
+            if missing:
+                old_db = CFG.get("db_path", "yt_guardian.db")
+                try:
+                    CFG["db_path"] = target_db
+                    init_db(target_db)
+                    total_missing = len(missing)
+                    for i, mv in enumerate(missing, 1):
+                        vid = (mv.get("video_id") or "").strip()
+                        if not vid:
+                            continue
+                        src_type = (mv.get("source_type") or "").strip().lower()
+                        src_url = "/streams" if src_type in ("stream", "replay_chat", "live") else "/videos"
+                        vid_payload = {
+                            "video_id": vid,
+                            "title": mv.get("title", ""),
+                            "video_date": mv.get("video_date", ""),
+                            "source_url": src_url,
+                        }
+                        try:
+                            # 1) İlk iki videoda kullanılan akış ile tutarlı olmak için
+                            # önce standart scrape modülleri (yorum + varsa replay chat).
+                            _, _, saved = _scrape_one_video(vid_payload, i, total_missing, emit_fn=None)
+
+                            # 2) Hâlâ veri yoksa NLP replay takviyesini dene.
+                            nlp_messages = 0
+                            nlp_status = "skipped"
+                            if saved == 0:
+                                res = nlp_auto_replay_chat(
+                                    vid,
+                                    mv.get("title", ""),
+                                    mv.get("video_date", ""),
+                                    auto_analyze=True,
+                                    filter_spam=True
+                                ) or {}
+                                nlp_messages = int(res.get("messages", 0) or 0)
+                                nlp_status = res.get("status", "ok")
+
+                            recalculated.append({
+                                "video_id": vid,
+                                "status": "ok" if (saved > 0 or nlp_messages > 0) else nlp_status,
+                                "messages": int(saved + nlp_messages),
+                                "scrape_messages": int(saved),
+                                "nlp_messages": int(nlp_messages),
+                            })
+                        except Exception as e:
+                            recalculated.append({"video_id": vid, "status": "error", "error": str(e)})
+                finally:
+                    CFG["db_path"] = old_db
+
+        rows = db_exec_on(
+            target_db,
+            "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
+            " MAX(title) AS title, COUNT(*) AS message_count,"
+            " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
+            " FROM messages WHERE deleted=0"
+            " GROUP BY COALESCE(video_date,''), COALESCE(video_id,'')"
+            " ORDER BY CASE WHEN video_date='' THEN 1 ELSE 0 END, video_date DESC, max_ts DESC"
+            " LIMIT ?",
+            (limit,), fetch="all"
+        ) or []
+
+        out = []
+        for r in rows:
+            video_date = (r.get("video_date") or "").strip()
+            if (not video_date) and int(r.get("max_ts") or 0) > 0:
+                video_date = datetime.utcfromtimestamp(int(r["max_ts"])).strftime("%Y%m%d")
+            out.append({
+                "window_date": video_date,
+                "video_id": (r.get("video_id") or "").strip(),
+                "title": (r.get("title") or "").strip(),
+                "message_count": int(r.get("message_count") or 0),
+                "min_timestamp": int(r.get("min_ts") or 0),
+                "max_timestamp": int(r.get("max_ts") or 0),
+            })
+        return jsonify({
+            "ok": True,
+            "session_id": sid,
+            "db_path": target_db,
+            "windows": out,
+            "recalculated_videos": recalculated,
+            "recalculated_count": len(recalculated),
+        })
 
     @app.route("/api/replay/windows")
     def api_replay_windows():
+        replay_session_id = (request.args.get("session_id","") or "").strip()
+        replay_db_path    = (request.args.get("db_path","") or "").strip()
+        sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
         lim = max(10, min(300, int(request.args.get("limit", 120))))
-        rows = db_exec(
+        rows = db_exec_on(
+            target_db,
             "SELECT COALESCE(video_date,'') AS video_date, COALESCE(video_id,'') AS video_id,"
             " MAX(title) AS title, COUNT(*) AS message_count,"
             " MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts"
@@ -6910,12 +7217,15 @@ def create_app():
                 "min_timestamp": int(r.get("min_ts") or 0),
                 "max_timestamp": int(r.get("max_ts") or 0),
             })
-        return jsonify({"windows": out})
+        return jsonify({"windows": out, "session_id": sid, "db_path": target_db})
 
     @app.route("/api/replay/window/messages")
     def api_replay_window_messages():
         vid = (request.args.get("video_id", "") or "").strip()
         win_date = (request.args.get("window_date", "") or "").strip()
+        replay_session_id = (request.args.get("session_id","") or "").strip()
+        replay_db_path    = (request.args.get("db_path","") or "").strip()
+        sid, target_db = _resolve_replay_db(replay_session_id, replay_db_path)
         lim = max(50, min(5000, int(request.args.get("limit", 5000))))
         wh = ["m.deleted=0"]
         prms: List = []
@@ -6926,7 +7236,8 @@ def create_app():
             wh.append("COALESCE(m.video_date,'')=?")
             prms.append(win_date)
         where_sql = " AND ".join(wh)
-        rows = db_exec(
+        rows = db_exec_on(
+            target_db,
             "SELECT m.*, up.threat_level, up.threat_score"
             " FROM messages m LEFT JOIN user_profiles up ON m.author=up.author"
             f" WHERE {where_sql}"
@@ -6934,7 +7245,7 @@ def create_app():
             tuple(prms) + (lim,), fetch="all"
         ) or []
         out = _attach_watch_links(rows)
-        return jsonify({"messages": out, "total": len(out)})
+        return jsonify({"messages": out, "total": len(out), "session_id": sid, "db_path": target_db})
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     @app.route("/api/analyze/user", methods=["POST"])
