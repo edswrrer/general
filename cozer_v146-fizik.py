@@ -566,6 +566,36 @@ def candidate_author_forms(name: str) -> List[str]:
         return []
     return [base, f"@{base}"]
 
+def parse_bulk_handles(raw_handles: Any) -> List[str]:
+    """
+    Toplu ban için kullanıcı adı listesi ayrıştırıcı.
+    Tek bir metin veya liste alır; @ işaretli kalıpları önceliklendirir ve
+    boşluk içeren kullanıcı adlarını korur.
+    """
+    def _split_from_text(text: str) -> List[str]:
+        raw_text = unicodedata.normalize("NFKC", str(text or ""))
+        at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
+        if at_parts:
+            return at_parts
+        return [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
+
+    tokens: List[str] = []
+    if isinstance(raw_handles, list):
+        for item in raw_handles:
+            tokens.extend(_split_from_text(str(item or "")))
+    else:
+        tokens = _split_from_text(str(raw_handles or ""))
+
+    clean: List[str] = []
+    seen = set()
+    for token in tokens:
+        author = normalize_handle_token(token)
+        if not author or author in seen:
+            continue
+        seen.add(author)
+        clean.append(author)
+    return clean
+
 def msg_id(video_id: str, author: str, ts: int, message: str) -> str:
     return hashlib.sha256(f"{video_id}|{author}|{ts}|{message}".encode()).hexdigest()
 
@@ -4370,15 +4400,16 @@ function parseBulkBanHandles(text){
   const regex = /@+([^,\n;]+)/g;
   let m;
   while((m = regex.exec(raw)) !== null){
+    // @ ile başlayan blokları virgül/noktalı virgül/yeni satıra kadar al.
+    // Böylece boşluk içeren kullanıcı adları parçalanmaz.
     parts.push(m[1]);
   }
   if(!parts.length){
     parts.push(...raw.split(/[,\n;]+/));
   }
   return Array.from(new Set(
-    String(text||'')
-      .split(/[\s,;]+/)
-      .map(t=>t.normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
+    parts
+      .map(t=>String(t||'').normalize('NFKC').trim().replace(/^@+/,'').toLowerCase())
       .filter(Boolean)
   ));
 }
@@ -5352,30 +5383,7 @@ def create_app():
         raw_handles = payload.get("handles")
         if raw_handles is None:
             raw_handles = request.form.get("handles", "")
-
-        handles: List[str] = []
-        if isinstance(raw_handles, list):
-            handles = [str(h or "").strip() for h in raw_handles]
-        else:
-            raw_text = unicodedata.normalize("NFKC", str(raw_handles or ""))
-            # Öncelik: @ ile başlayan kalıpları virgül/noktalı virgül/yeni satıra kadar yakala.
-            # Böylece "DrOpen YourEyes" gibi boşluk içeren adlar parçalanmaz.
-            at_parts = [p.strip() for p in re.findall(r"@+([^,\n;]+)", raw_text)]
-            if at_parts:
-                handles = at_parts
-            else:
-                handles = [p.strip() for p in re.split(r"[,\n;]+", raw_text)]
-
-        clean = []
-        seen = set()
-        for h in handles:
-            author = normalize_handle_token(h)
-            if not author:
-                continue
-            if author in seen:
-                continue
-            seen.add(author)
-            clean.append(author)
+        clean = parse_bulk_handles(raw_handles)
 
         if not clean:
             return jsonify({
