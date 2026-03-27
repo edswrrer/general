@@ -2925,7 +2925,7 @@ def run_clustering(users: List[str] = None) -> dict:
         }
 
     # Büyük kullanıcı setlerini örnekle (performans)
-    MAX_CLUSTER_USERS = 500
+    MAX_CLUSTER_USERS = 5000
     if len(users) > MAX_CLUSTER_USERS:
         log.warning(
             "Kümeleme: %d kullanıcı > MAX=%d, en yüksek tehdit skorlu %d alınıyor",
