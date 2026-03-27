@@ -3677,6 +3677,7 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
   <div class="nav">
     <div class="ni act" onclick="nav('dashboard',this)"><span class="ic">📊</span>Dashboard</div>
     <div class="ni" onclick="nav('users',this)"><span class="ic">👥</span>Kullanıcılar</div>
+    <div class="ni" onclick="nav('ban-correlation',this)"><span class="ic">🧠</span>Ban-Korelasyon</div>
     <div class="ni" onclick="nav('messages',this)"><span class="ic">💬</span>Mesajlar</div>
     <div class="ni" onclick="nav('graph',this)"><span class="ic">🔗</span>İlişki Ağı</div>
     <div class="ni" onclick="nav('live',this)"><span class="ic">⚡</span>Canlı Yayın</div>
@@ -3746,6 +3747,23 @@ mark{background:rgba(88,166,255,.25);color:var(--tx);border-radius:2px;padding:0
     <tbody id="utbody"></tbody>
   </table>
   <div class="pager" id="upager"></div>
+</div>
+
+<!-- BANLANAN KORELASYON -->
+<div id="tab-ban-correlation" class="tab">
+  <div class="card">
+    <h3>🧠 Banlanan-Korelasyon Analizi</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <label style="font-size:11px;color:var(--tx2)">Banlanan Kullanıcı</label>
+      <select class="inp" id="bc-author" style="min-width:220px"></select>
+      <label style="font-size:11px;color:var(--tx2)">Min. Korelasyon</label>
+      <input class="inp" id="bc-mincorr" type="number" min="0" max="1" step="0.01" value="0.62" style="width:90px">
+      <button class="btn" onclick="loadBannedCorrelationsTab()">🔄 Analizi Getir</button>
+      <span id="bc-count" style="font-size:11px;color:var(--tx2);margin-left:auto"></span>
+    </div>
+    <div id="bc-summary" style="font-size:11px;color:var(--tx2);margin-bottom:8px"></div>
+    <div id="bc-results"></div>
+  </div>
 </div>
 
 <!-- MESAJLAR -->
@@ -3933,6 +3951,7 @@ function nav(name,el){
   $('.ni').removeClass('act'); $(el).addClass('act');
   if(name==='dashboard') loadDash();
   else if(name==='users') loadUsers(1);
+  else if(name==='ban-correlation') initBannedCorrelationTab();
   else if(name==='messages') loadMsgs(1);
   else if(name==='graph') { if(!graphLoaded) loadGraph(); }
   else if(name==='stats') loadStats();
