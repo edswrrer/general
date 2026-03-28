@@ -2598,6 +2598,11 @@ def _title_similarity(a: str, b: str) -> float:
     contain = 1.0 if (na in nb or nb in na) else 0.0
     return max(jacc, contain * 0.75)
 
+
+def nlp_supplement_video(video_id: str, title: str = "") -> dict:
+    """
+    Tek video için replay-chat takviyesi yapar.
+
     Algoritma:
       1. yt-dlp ile verilen video_id'nin tarih/başlık bilgisini çek
       2. scraped_videos içinden en uygun slotu seç:
