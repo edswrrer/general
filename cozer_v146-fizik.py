@@ -7297,9 +7297,17 @@ def create_app():
         if not video_id:
             return jsonify({"success": False, "error": "Geçerli bir YouTube linki veya Video ID girin"})
 
+        # Global isim çözümleme hatalarına karşı güvenli bağlama:
+        # thread içinde NameError yerine kontrollü hata döndür.
+        supp_fn = globals().get("nlp_supplement_video")
+        if not callable(supp_fn):
+            err = "nlp_supplement_video fonksiyonu tanımlı değil"
+            log.error("NLP takviye API hatası (%s): %s", video_id, err)
+            return jsonify({"success": False, "error": err})
+
         def _bg():
             try:
-                result = nlp_supplement_video(video_id, title=title)
+                result = supp_fn(video_id, title=title)
                 if _sio:
                     try:
                         _sio.emit("nlp_supplement_done", result, namespace="/ws")
