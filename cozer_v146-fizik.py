@@ -2538,13 +2538,6 @@ def _find_best_supplement_slot(video_id: str, vid_date: str, vid_title: str) -> 
     if not rows:
         return None, None, 0.0, 0
 
-    # 0) Doğrudan video_id eşleşmesi varsa her zaman slotu yakala.
-    # Bu durumda "Eşleşen slot bulunamadı" fallback'ına düşmemeli.
-    for slot in rows:
-        sid = (slot.get("video_id") or "").strip()
-        if sid and sid == video_id:
-            return dict(slot), 0, 1.0, empty_count
-
     max_days = max(1, int(CFG.get("supplement_match_days", 14) or 14))
     min_title = float(CFG.get("supplement_title_min_score", 0.30) or 0.30)
 
@@ -2561,7 +2554,7 @@ def _find_best_supplement_slot(video_id: str, vid_date: str, vid_title: str) -> 
 
     for slot in rows:
         sid = (slot.get("video_id") or "").strip()
-        if not sid:
+        if not sid or sid == video_id:
             continue
 
         s_title = (slot.get("title") or "").strip()
@@ -2594,10 +2587,16 @@ def _find_best_supplement_slot(video_id: str, vid_date: str, vid_title: str) -> 
     return best, best_delta, best_score, empty_count
 
 
-def nlp_supplement_video(video_id: str, title: str = "") -> dict:
-    """
-    Manuel girilen video linkini, kanal taramasında replay-chat verisi
-    çekilemeyen aralıklara algoritmik olarak yerleştirir.
+def _title_similarity(a: str, b: str) -> float:
+    na, nb = _norm_title_for_match(a), _norm_title_for_match(b)
+    if not na or not nb:
+        return 0.0
+    ta, tb = set(na.split()), set(nb.split())
+    if not ta or not tb:
+        return 0.0
+    jacc = len(ta & tb) / max(1, len(ta | tb))
+    contain = 1.0 if (na in nb or nb in na) else 0.0
+    return max(jacc, contain * 0.75)
 
     Algoritma:
       1. yt-dlp ile verilen video_id'nin tarih/başlık bilgisini çek
@@ -2615,8 +2614,12 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     vid_date  = vid_meta.get("video_date", "")
     vid_title = title or vid_meta.get("title", "") or video_id
 
-    log.info("Takviye video: id=%s  tarih=%s  başlık=%s",
-             video_id, vid_date, vid_title[:50])
+    # 0) Doğrudan video_id eşleşmesi varsa her zaman slotu yakala.
+    # Bu durumda "Eşleşen slot bulunamadı" fallback'ına düşmemeli.
+    for slot in rows:
+        sid = (slot.get("video_id") or "").strip()
+        if sid and sid == video_id:
+            return dict(slot), 0, 1.0, empty_count
 
     # ── 2. Slot eşleştirme (tarih + başlık, boş slot öncelikli) ─────────────
     matched_slot, match_delta_days, match_score, empty_count = _find_best_supplement_slot(
@@ -2625,15 +2628,11 @@ def nlp_supplement_video(video_id: str, title: str = "") -> dict:
     log.info("Boş replay-chat slotu sayısı: %d", empty_count)
 
     if matched_slot:
-        if (matched_slot.get("video_id") or "") == video_id:
-            log.info("Eşleşen slot: %s  (doğrudan video_id eşleşmesi, skor=%.3f)",
-                     matched_slot["video_id"], match_score)
-        else:
-            log.info("Eşleşen slot: %s  (delta=%s gün, skor=%.3f, başlık=%s)",
-                     matched_slot["video_id"],
-                     match_delta_days if match_delta_days is not None else "N/A",
-                     match_score,
-                     (matched_slot.get("title") or "")[:50])
+        log.info("Eşleşen slot: %s  (delta=%s gün, skor=%.3f, başlık=%s)",
+                 matched_slot["video_id"],
+                 match_delta_days if match_delta_days is not None else "N/A",
+                 match_score,
+                 (matched_slot.get("title") or "")[:50])
     else:
         log.info("Eşleşen slot bulunamadı — bağımsız kayıt yapılacak")
 
